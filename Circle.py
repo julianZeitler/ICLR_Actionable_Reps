@@ -174,13 +174,13 @@ for counter in range(K):
         Losses = np.zeros([3, int(T / save_iters)])   # Holder for losses, total, sep, and equi
         min_L = np.zeros([4])  # Step, Loss, Loss_Sep, and Loss_Equi at min Loss
 
-    min_L[1] = np.infty                 # Set min Loss = infty
+    min_L[1] = np.inf                 # Set min Loss = infty
     L2 = 0                              # So that the positivity moving average has somewhere to start
     L3 = 0                              # Same for the equivariance
     lambda_pos = lambda_pos_init        # And the positivity
     save_counter = 0
 
-    Losses[0,:] = np.infty
+    Losses[0,:] = np.inf
 
     for step in range(T):
         if step%resample_iters == 0:

@@ -1,0 +1,24 @@
+[project]
+name = "actionable-neural-representations"
+version = "0.1.0"
+description = "Grid Cells from Minimal Constraints - ICLR 2023 Submission"
+requires-python = ">=3.8"
+dependencies = [
+    "jax[cuda12]>=0.4.0",
+    "numpy>=1.20.0",
+    "scipy>=1.7.0",
+    "matplotlib>=3.5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "jupyter>=1.0.0",
+    "ipykernel>=6.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["NRT_functions"]

@@ -11,12 +11,12 @@ from NRT_functions import losses
 
 ##### Set a load of parameters ######
 
-T = 75000                   # How many gradient steps
-D = 25                        # How many neurons
-K = 5                       # How many repeats to run
+T = 1000000                   # How many gradient steps
+D = 64                      # How many neurons
+K = 1                       # How many repeats to run
 N_rand = 150                # How many random angles, to use for separation loss
 N_shift = 15                # Number of other rooms to measure positivity and norm
-Shift_std = 5               # Standard deviation of normal from which to sample shifts
+Shift_std = 3               # Standard deviation of normal from which to sample shifts
 norm_size = 1               # How much bigger to make the room you take the norm over
 sampling_choice = 1         # 0 for square room, 1 for normal distribution, 2 for circular room
 shift_points_sep = 0        # 0 for room centered on (0,0), 1 for room whose centre shifts by shift_std every step
@@ -196,7 +196,7 @@ elif sep_loss_choice == 2:
     grad_sep_W = jit(grad(losses.sep_plane_Kern, argnums=0))
     grad_sep_om = jit(grad(losses.sep_plane_Kern, argnums=1))
 elif sep_loss_choice == 3:
-    sigma_sq = 0.4
+    sigma_sq = 0.04
     sigma_theta = 0.5
     f = 1
 
@@ -207,14 +207,16 @@ elif sep_loss_choice == 3:
         grad_sep_om = jit(grad(losses.sep_plane_KernChi_Module, argnums = 1))
     else:
         loss_sep = jit(losses.sep_plane_KernChi)
+        # loss_sep = losses.sep_plane_KernChi
         grad_sep_W = jit(grad(losses.sep_plane_KernChi, argnums=0))
-        grad_sep_om = grad(losses.sep_plane_KernChi, argnums=1)
+        grad_sep_om = jit(grad(losses.sep_plane_KernChi, argnums=1))
     if chi_choice == 0:
         calc_chi = jit(helper_functions.calc_chi_plane)
     elif chi_choice == 1:
         calc_chi = jit(helper_functions.calc_chi_plane_euc)
     elif chi_choice == 2:
         calc_chi = jit(helper_functions.calc_chi_plane_exp)
+        # calc_chi = helper_functions.calc_chi_plane_exp
 
 parameters.update({"sep_loss_choice": sep_loss_choice})
 loss_pos = jit(losses.pos_plane)
@@ -271,7 +273,7 @@ for counter in range(K):
 
     Losses = np.zeros([4, int(T / save_iters)])   # Holder for losses, total, sep, and equi
     min_L = np.zeros([5])  # Step, Loss, Loss_Sep, and Loss_Equi at min Loss
-    min_L[1] = np.infty                 # Set min Loss = infty
+    min_L[1] = np.inf                 # Set min Loss = infty
     L2 = 0                              # So that the positivity moving average has somewhere to start
     L3 = 0                              # Starting norm average
     lambda_norm = lambda_norm_init      # Starting lambda norm

@@ -271,7 +271,7 @@ for counter in range(K):
 
     Losses = np.zeros([4, int(T / save_iters)])   # Holder for losses, total, sep, and equi
     min_L = np.zeros([5])  # Step, Loss, Loss_Sep, and Loss_Equi at min Loss
-    min_L[1] = np.infty                 # Set min Loss = infty
+    min_L[1] = np.inf                 # Set min Loss = infty
     L2 = 0                              # So that the positivity moving average has somewhere to start
     L3 = 0                              # Starting norm average
     lambda_norm = lambda_norm_init      # Starting lambda norm

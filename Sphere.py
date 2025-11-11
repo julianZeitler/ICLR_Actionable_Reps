@@ -103,7 +103,7 @@ for counter in range(K):
 
     Losses = np.zeros([4, T])             # Holder for losses, total, sep, and equi
     min_L = np.zeros([5])               # Step, Loss, Loss_Sep, and Loss_Equi at min Loss
-    min_L[1] = np.infty                 # Set min Loss = infty
+    min_L[1] = np.inf                 # Set min Loss = infty
     L2 = 0                              # So that the equivariance moving average has somewhere to start
     L3 = 0                              # Same for the positivity
     lambda_equi = lambda_equi_init      # Initialise the starting lambda_equi
@@ -179,7 +179,7 @@ for counter in range(K):
         # Take parameter step
         W = W - epsilon * means_debiased_W / (np.sqrt(sec_moms_debiased_W + eta))
 
-    if min_L[1] == np.infty:
+    if min_L[1] == np.inf:
         W_best = W
 
     W_best = helper_functions.normalise_weights(W_best)
