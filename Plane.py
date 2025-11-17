@@ -11,7 +11,7 @@ from NRT_functions import losses
 
 ##### Set a load of parameters ######
 
-T = 1000000                   # How many gradient steps
+T = 150000                  # How many gradient steps
 D = 64                      # How many neurons
 K = 1                       # How many repeats to run
 N_rand = 150                # How many random angles, to use for separation loss
@@ -32,7 +32,7 @@ gamma_p = 0.0001             # Proportionality constant
 lambda_norm_init = 0.005      # Initial norm loss weighting
 k_norm = 6                   # norm target
 alpha_norm = 0.9             # Smoothing of norm dynamics
-gamma_norm = 0.0001         # Proportionality constant from mismatch to constrant movement
+gamma_norm = 0.0001         # Proportionality constant from mismatch to constraint movement
 
 # Parameters for ADAM
 epsilon_w = 0.1             # Step size parameter W
@@ -226,7 +226,7 @@ loss_norm = jit(losses.norm_plane)
 grad_norm_W = jit(grad(losses.norm_plane, argnums=0))
 grad_norm_om = jit(grad(losses.norm_plane, argnums=1))
 init_irreps = jit(helper_functions.init_irreps_2D)
-key = random.PRNGKey(0)
+key = random.key(0)
 
 # Setup save file locations
 today = datetime.strftime(datetime.now(), '%y%m%d')

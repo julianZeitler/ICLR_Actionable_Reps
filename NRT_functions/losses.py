@@ -359,7 +359,7 @@ def norm_plane(W, om, phi_room, phi_other):
     N_shift = int(phi_other.shape[0]/N)
 
     # Measure the resulting norms in each of the rooms and penlise deviations from 1
-    norms = jnp.sum(jnp.reshape(jnp.power(g_other, 2), [D, N_shift, N]), axis = 2)
+    norms = jnp.sum(jnp.reshape(jnp.power(g, 2), [D, N_shift, N]), axis = 2)
     return jnp.linalg.norm(norms - 1)/(D*N_shift)
 
 def norm_plane_seq(g0, om, S, phi_room, phi_other):
