@@ -206,8 +206,8 @@ elif sep_loss_choice == 3:
         grad_sep_W = jit(grad(losses.sep_plane_KernChi_Module, argnums=0))
         grad_sep_om = jit(grad(losses.sep_plane_KernChi_Module, argnums = 1))
     else:
-        loss_sep = jit(losses.sep_plane_KernChi)
-        # loss_sep = losses.sep_plane_KernChi
+        # loss_sep = jit(losses.sep_plane_KernChi)
+        loss_sep = losses.sep_plane_KernChi
         grad_sep_W = jit(grad(losses.sep_plane_KernChi, argnums=0))
         grad_sep_om = jit(grad(losses.sep_plane_KernChi, argnums=1))
     if chi_choice == 0:

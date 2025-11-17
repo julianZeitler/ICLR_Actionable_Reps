@@ -78,6 +78,71 @@ def init_irreps_2D(om, phi):
     I = I.at[2::2,:].set(sin_stack)
     return I
 
+def get_T_2D(om, phi, S):
+    """
+    Compute transformation matrix T(phi) = S @ T_irrep(phi) @ S^(-1)
+
+    Args:
+        om: frequencies, shape [M, 2]
+        phi: displacement vector, shape [2] or [N, 2]
+        S: change of basis matrix, shape [2*M+1, 2*M+1] or similar
+
+    Returns:
+        T: transformation matrix, shape [D, D] if phi is [2], or [N, D, D] if phi is [N, 2]
+    """
+    M = om.shape[0]  # Number of frequencies
+
+    # Handle both single phi [2] and batch phi [N, 2]
+    if phi.ndim == 1:
+        phi = phi[None, :]  # Add batch dimension: [2] -> [1, 2]
+        squeeze_output = True
+    else:
+        squeeze_output = False
+
+    N = phi.shape[0]
+
+    # Compute k · Δx for all frequencies and all phis
+    # om shape: [M, 2], phi shape: [N, 2]
+    # k_dot_phi shape: [N, M]
+    k_dot_phi = jnp.sum(om[None, :, :] * phi[:, None, :], axis=2)
+
+    # Build T_irrep as block-diagonal matrix
+    # T_irrep has structure: constant (1) + M blocks of 2x2 rotation matrices
+    D = 2*M + 1
+    T_irrep = jnp.zeros([N, D, D])
+
+    # First element is always 1 (constant term)
+    T_irrep = T_irrep.at[:, 0, 0].set(1.0)
+
+    # Fill in 2x2 rotation blocks for each frequency
+    for m in range(M):
+        cos_val = jnp.cos(k_dot_phi[:, m])
+        sin_val = jnp.sin(k_dot_phi[:, m])
+
+        # Each irrep I_m(θ) is a 2x2 rotation matrix:
+        # [ cos(k·Δx)  -sin(k·Δx) ]
+        # [ sin(k·Δx)   cos(k·Δx) ]
+
+        # Indices in the full matrix (1-indexed for constant, then pairs)
+        idx1 = 2*m + 1  # cos term
+        idx2 = 2*m + 2  # sin term
+
+        T_irrep = T_irrep.at[:, idx1, idx1].set(cos_val)
+        T_irrep = T_irrep.at[:, idx1, idx2].set(-sin_val)
+        T_irrep = T_irrep.at[:, idx2, idx1].set(sin_val)
+        T_irrep = T_irrep.at[:, idx2, idx2].set(cos_val)
+
+    # Compute T = S @ T_irrep @ S^(-1) for each phi
+    S_inv = jnp.linalg.inv(S)
+
+    # T shape: [N, D, D]
+    T = jnp.einsum('ij,njk,kl->nil', S, T_irrep, S_inv)
+
+    if squeeze_output:
+        T = T[0]  # Remove batch dimension: [1, D, D] -> [D, D]
+
+    return T 
+
 def init_irreps_AB(om, theta_A, theta_B, phi):
     cos_stack_A = jnp.cos(theta_A[None, :]*om[:, None])
     sin_stack_A = jnp.sin(theta_A[None, :]*om[:, None])
