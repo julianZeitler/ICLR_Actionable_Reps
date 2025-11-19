@@ -89,7 +89,7 @@ if not os.path.isdir(f"data/{today}/{now}"):
     os.mkdir(f"data/{today}/{now}")
 
 
-helper_functions.save_obj(parameters, "parameters", savepath)
+helper_functions.save_parameters_json(parameters, "parameters", savepath)
 print("\nOPTIMISATION BEGINNING\n")
 
 for counter in range(K):

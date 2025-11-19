@@ -6,6 +6,7 @@ import numpy as np
 from pathlib import Path
 from scipy.special import sph_harm as sph_harm
 import pickle
+import json
 
 # A function to setup a save file
 def setup_save_file(parameters):
@@ -39,6 +40,31 @@ def save_obj(obj, name, savepath):
 def load_obj(name, filepath):
     with open(filepath + name + '.pkl', 'rb') as f:
         return pickle.load(f)
+
+def save_parameters_json(params, name, savepath):
+    """Save parameters dictionary as JSON file.
+    Converts numpy arrays and other non-serializable types to JSON-compatible format.
+    """
+    def convert_to_serializable(obj):
+        if isinstance(obj, (np.ndarray, jnp.ndarray)):
+            return obj.tolist()
+        elif isinstance(obj, (np.integer, np.floating)):
+            return obj.item()
+        elif isinstance(obj, dict):
+            return {key: convert_to_serializable(value) for key, value in obj.items()}
+        elif isinstance(obj, (list, tuple)):
+            return [convert_to_serializable(item) for item in obj]
+        else:
+            return obj
+
+    serializable_params = convert_to_serializable(params)
+    with open(savepath + name + '.json', 'w') as f:
+        json.dump(serializable_params, f, indent=2)
+
+def load_parameters_json(name, filepath):
+    """Load parameters dictionary from JSON file."""
+    with open(filepath + name + '.json', 'r') as f:
+        return json.load(f)
 
 # Function to save weights
 def save_weights(W, counter):

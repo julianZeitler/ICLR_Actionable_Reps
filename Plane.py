@@ -4,10 +4,16 @@ import jax.numpy as jnp
 import numpy as np
 from datetime import datetime
 import os
+import jax
 
 # And functions I've written
 from NRT_functions import helper_functions
 from NRT_functions import losses
+
+# Configure JAX for better memory management
+jax.config.update("jax_enable_x64", False)  # Use 32-bit precision to save memory
+os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'  # Disable memory preallocation
+os.environ['XLA_PYTHON_CLIENT_ALLOCATOR'] = 'platform'  # Use platform allocator
 
 ##### Set a load of parameters ######
 
@@ -15,8 +21,9 @@ T = 150000                  # How many gradient steps
 D = 64                      # How many neurons
 K = 1                       # How many repeats to run
 N_rand = 150                # How many random angles, to use for separation loss
+phi_std = 3
 N_shift = 15                # Number of other rooms to measure positivity and norm
-Shift_std = 3               # Standard deviation of normal from which to sample shifts
+Shift_std = 9               # Standard deviation of normal from which to sample shifts
 norm_size = 1               # How much bigger to make the room you take the norm over
 sampling_choice = 1         # 0 for square room, 1 for normal distribution, 2 for circular room
 shift_points_sep = 0        # 0 for room centered on (0,0), 1 for room whose centre shifts by shift_std every step
@@ -30,7 +37,7 @@ gamma_p = 0.0001             # Proportionality constant
 
 # Norm GECO parameters
 lambda_norm_init = 0.005      # Initial norm loss weighting
-k_norm = 6                   # norm target
+k_norm = -1                   # norm target
 alpha_norm = 0.9             # Smoothing of norm dynamics
 gamma_norm = 0.0001         # Proportionality constant from mismatch to constraint movement
 
@@ -206,8 +213,8 @@ elif sep_loss_choice == 3:
         grad_sep_W = jit(grad(losses.sep_plane_KernChi_Module, argnums=0))
         grad_sep_om = jit(grad(losses.sep_plane_KernChi_Module, argnums = 1))
     else:
-        # loss_sep = jit(losses.sep_plane_KernChi)
-        loss_sep = losses.sep_plane_KernChi
+        loss_sep = jit(losses.sep_plane_KernChi)
+        # loss_sep = losses.sep_plane_KernChi
         grad_sep_W = jit(grad(losses.sep_plane_KernChi, argnums=0))
         grad_sep_om = jit(grad(losses.sep_plane_KernChi, argnums=1))
     if chi_choice == 0:
@@ -242,10 +249,11 @@ savepath = f"data/{today}/{now}/"
 if not os.path.isdir(f"data/{today}/{now}"):
     os.mkdir(f"data/{today}/{now}")
 
-helper_functions.save_obj(parameters, "parameters", savepath)
+helper_functions.save_parameters_json(parameters, "parameters", savepath)
 print("\nOPTIMISATION BEGINNING\n")
 
 for counter in range(K):
+
     # Randomly initialise the weights, losses, moments, and best W and loss
     key, subkey1 = random.split(key)     # How to do random things in jax
     W = random.normal(subkey1, [D, 2*M+1])    # The random init weights
@@ -290,7 +298,7 @@ for counter in range(K):
             if sampling_choice == 0:
                 phi = (np.random.sample([N_rand, 2]) - 0.5) * np.pi * 2
             elif sampling_choice == 1:
-                phi = np.random.normal(0, 1, [N_rand, 2])
+                phi = np.random.normal(0, phi_std, [N_rand, 2])
             elif sampling_choice == 2:
                 r = np.sqrt(np.random.uniform(size=[N_rand, 1]))
                 theta = np.random.uniform(size=[N_rand, 1]) * 2 * np.pi
@@ -336,10 +344,11 @@ for counter in range(K):
             om_grad2 = grad_pos_om(W, om, phi_pos, N_shift)
         if pos > 0:
             L2_Here = np.log(pos) - k_p
-            if L2_Here > 0:
-                L2_Here = np.log(L2_Here)
+            # if L2_Here > 0:
+            #     L2_Here = np.log(L2_Here)
         else:
-            L2_Here = -5
+            # L2_Here = -5
+            L2_Here = k_p
         L2 = L2*alpha_p + (1 - alpha_p)*L2_Here
         lambda_pos = lambda_pos*np.exp(L2*gamma_p)
 
@@ -405,3 +414,7 @@ for counter in range(K):
 
     # And print to say iteration done
     print(f"\nDONE ITERATION {counter}: Min_Loss = {min_L[1]:.5f}\n")
+
+# Final cleanup - clear all JAX caches and free GPU memory
+jax.clear_caches()
+print("\nOPTIMISATION COMPLETE - GPU memory cleared\n")
