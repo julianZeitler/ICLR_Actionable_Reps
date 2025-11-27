@@ -4,17 +4,10 @@ import jax.numpy as jnp
 import numpy as np
 from datetime import datetime
 import os
-import jax
 
 # And functions I've written
 from NRT_functions import helper_functions
 from NRT_functions import losses
-
-# Configure JAX for better memory management
-jax.config.update("jax_enable_x64", False)  # Use 32-bit precision to save memory
-os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'  # Disable memory preallocation
-os.environ['XLA_PYTHON_CLIENT_ALLOCATOR'] = 'platform'  # Use platform allocator
-
 
 def run_plane_optimization(parameters, om_init_scheme, sep_loss_choice, chi_choice,
                           W_constrain=0, savepath=None, key_seed=0):
@@ -284,7 +277,11 @@ def run_plane_optimization(parameters, om_init_scheme, sep_loss_choice, chi_choi
                     om_grad1 = 100*grad_sep_om(W, om, phi, sigma_sq, chi)
 
             # Positivity Term
-            L2_Here = np.log(loss_pos(W, om, phi_pos, N_shift)) - k_p
+            pos = loss_pos(W, om, phi_pos, N_shift)
+            if pos <= 0:
+                L2_Here = -5
+            else:
+                L2_Here = np.log(pos) - k_p
             L2 = L2*alpha_p + (1 - alpha_p) * L2_Here
             lambda_pos = lambda_pos * np.exp(L2 * gamma_p)
             W_grad2 = grad_pos_W(W, om, phi_pos, N_shift)
@@ -360,10 +357,6 @@ def run_plane_optimization(parameters, om_init_scheme, sep_loss_choice, chi_choi
         results['min_L_list'].append(min_L)
 
         print(f"\nDONE ITERATION {counter}: Min_Loss = {min_L[1]:.5f}\n")
-
-    # Final cleanup
-    jax.clear_caches()
-    print("\nOPTIMISATION COMPLETE - GPU memory cleared\n")
 
     results['savepath'] = savepath
     return results

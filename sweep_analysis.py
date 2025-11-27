@@ -73,20 +73,20 @@ def generate_analysis_plots(savepath: str, counter: int = 0, save_fig: bool = Tr
 
     # Generate dimension-specific plots
     if parameters["dim"] == 1:
-        figures.update(_generate_1d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig))
+        figures.update(_generate_1d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig, counter))
     elif parameters["dim"] == 2:
-        figures.update(_generate_2d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig, plot_scale))
+        figures.update(_generate_2d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig, plot_scale, counter))
 
     # Generate loss plots (common to all dimensions)
     fig_loss = _generate_loss_plots(L, min_L)
     figures['losses'] = fig_loss
     if save_fig:
-        fig_loss.savefig(os.path.join(savepath, "Losses.png"))
+        fig_loss.savefig(os.path.join(savepath, f"Losses_{counter}.png"))
 
     return figures
 
 
-def _generate_2d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig, plot_scale):
+def _generate_2d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig, plot_scale, counter):
     """Generate 2D-specific analysis plots."""
     figures = {}
 
@@ -94,7 +94,7 @@ def _generate_2d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig, 
     fig_freq = plotters.freq_plot(W, om, 1.1, 1, parameters)
     figures['freq_plot'] = fig_freq
     if save_fig:
-        fig_freq.savefig(os.path.join(savepath, "freq_plot.png"))
+        fig_freq.savefig(os.path.join(savepath, f"freq_plot_{counter}.png"))
 
     # Neural response plots
     if "epsilon_w" in parameters:
@@ -173,12 +173,12 @@ def _generate_2d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig, 
             fig.tight_layout()
             figures[f'neurons_plot_{plot_counter + 1}'] = fig
             if save_fig:
-                fig.savefig(os.path.join(savepath, f"Neurons_Plot_{plot_counter + 1}.png"))
+                fig.savefig(os.path.join(savepath, f"Neurons_Plot_{counter}_{plot_counter + 1}.png"))
 
     return figures
 
 
-def _generate_1d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig):
+def _generate_1d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig, counter):
     """Generate 1D-specific analysis plots."""
     figures = {}
 
@@ -229,7 +229,7 @@ def _generate_1d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig):
         fig_freq = plotters.freq_plot(W, om, thresh_percentage, om_scrunch_threshold, parameters)
         figures['freq_plot'] = fig_freq
         if save_fig:
-            fig_freq.savefig(os.path.join(savepath, "freq_plot.png"))
+            fig_freq.savefig(os.path.join(savepath, f"freq_plot_{counter}.png"))
 
         # Neural response plots
         for plot_counter, V_plot in enumerate(Vs):
@@ -248,7 +248,7 @@ def _generate_1d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig):
 
             figures[f'neurons_plot_{plot_counter + 1}'] = fig
             if save_fig:
-                fig.savefig(os.path.join(savepath, f"Neurons_Plot_{plot_counter + 1}.png"))
+                fig.savefig(os.path.join(savepath, f"Neurons_Plot_{counter}_{plot_counter + 1}.png"))
 
     return figures
 
@@ -360,12 +360,13 @@ def run_parameter_sweep(
             # Generate analysis plots
             if generate_plots:
                 print(f"\nGenerating analysis plots...")
-                try:
-                    figures = generate_analysis_plots(run_savepath, counter=0, save_fig=True)
-                    plt.close('all')  # Close all figures to free memory
-                    print(f"Analysis plots saved to {run_savepath}")
-                except Exception as e:
-                    print(f"Warning: Failed to generate plots for run {idx}: {e}")
+                for k in range(run_parameters["K"]):
+                    try:
+                        figures = generate_analysis_plots(run_savepath, counter=k, save_fig=True)
+                        plt.close('all')  # Close all figures to free memory
+                        print(f"Analysis plots for {k} saved to {run_savepath}")
+                    except Exception as e:
+                        print(f"Warning: Failed to generate plots for run {idx} {k}: {e}")
 
             # Store results
             run_result = {
