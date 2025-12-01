@@ -1,5 +1,6 @@
 # File containing all the various loss functions I have written
 import jax.numpy as jnp
+import numpy as np
 import jax
 from NRT_functions import helper_functions
 
@@ -203,14 +204,14 @@ def pos_plane(W, om, phi, N_shift):
     # Turn into normalised neural activity
     g = jnp.matmul(W, I)
     norms = jnp.linalg.norm(g, axis = 1)/(N_shift+1)
-    g = g/norms[:,None]
+    g = g/(norms[:,None]+0.0001)
     [D, N] = g.shape
 
     # measure positivity
     g_neg = (g - jnp.abs(g))/2
     return -jnp.sum(g_neg)/(D*N)
 
-def pos_plane_seq(g0, om, S, phi, N_shift):
+def pos_plane_seq(g0, om, S1, S2, phi, N_shift):
     # g0 = activity at origin (shape [D, 1])
     # T(phi) = S @ T_irrep(phi) @ S^(-1)
     # g(phi) = T(phi) @ g0
@@ -222,12 +223,11 @@ def pos_plane_seq(g0, om, S, phi, N_shift):
 
     # Get transformation matrices for all phi positions
     # T shape: [N, D, D]
-    T = helper_functions.get_T_2D(om, phi, S)
+    T = helper_functions.get_T_2D(om, phi, S1, S2)
 
     # Apply transformation to g0 for each position
     # T: [N, D, D], g0: [D, 1] -> g: [N, D, 1] -> [D, N]
-    g = jnp.einsum('nij,jk->nik', T, g0)  # Result: [N, D, 1]
-    g = g[:, :, 0].T  # Reshape to [D, N]
+    g = jnp.einsum('nij,j->in', T, g0)
 
     # Normalize g
     norms = jnp.linalg.norm(g, axis=0, keepdims=True) / (N_shift + 1)
@@ -236,7 +236,6 @@ def pos_plane_seq(g0, om, S, phi, N_shift):
 
     # measure positivity
     g_neg = (g - jnp.abs(g))/2
-    g0_neg = (g0 - jnp.abs(g0))/2
     return -jnp.sum(g_neg)/(D*N)
 
 def sep_plane_Euc(W, om, phi):
@@ -289,13 +288,13 @@ def sep_plane_KernChi(W, om, phi, sigma_sq, chi):
     # Turn into normalised neural activity
     g = jnp.matmul(W, I)
     norms = jnp.linalg.norm(g, axis = 1)
-    g = g/norms[:,None]
+    g = g/(norms[:,None]+0.0001)
 
     # measure separation
     Xi = jnp.exp(-jnp.sum(jnp.power(g[:,None,:] - g[:,:,None],2)/(2*sigma_sq),axis=0)) # the guassian bump
     return jnp.sum(jnp.multiply(Xi, chi))/jnp.power(N,2)
 
-def sep_plane_KernChi_seq(g0, om, S, phi, sigma_sq, chi):
+def sep_plane_KernChi_seq(g0, om, S1, S2, phi, sigma_sq, chi):
     # g0 = activity at origin (shape [D, 1])
     # T(phi) = S @ T_irrep(phi) @ S^(-1)
     # g(phi) = T(phi) @ g0
@@ -308,17 +307,16 @@ def sep_plane_KernChi_seq(g0, om, S, phi, sigma_sq, chi):
 
     # Get transformation matrices for all phi positions
     # T shape: [N, D, D]
-    T = helper_functions.get_T_2D(om, phi, S)
+    T = helper_functions.get_T_2D(om, phi, S1, S2)
 
     # Apply transformation to g0 for each position
     # T: [N, D, D], g0: [D, 1] -> g: [N, D, 1] -> [D, N]
-    g = jnp.einsum('nij,jk->nik', T, g0)  # Result: [N, D, 1]
-    g = g[:, :, 0].T  # Reshape to [D, N]
+    g = jnp.einsum('nij,j->in', T, g0)  # Result: [D,N]
 
     # Normalize g
     norms = jnp.linalg.norm(g, axis=0, keepdims=True)
     g = g / norms
-
+    
     # measure separation
     Xi = jnp.exp(-jnp.sum(jnp.power(g[:,None,:] - g[:,:,None],2)/(2*sigma_sq),axis=0)) # the guassian bump
     return jnp.sum(jnp.multiply(Xi, chi))/jnp.power(N,2)
@@ -353,16 +351,18 @@ def norm_plane(W, om, phi_room, phi_other):
     # Use the room to normalise the other representations
     g_room = jnp.matmul(W, I_room)
     g_other = jnp.matmul(W, I_other)
-    norms = jnp.linalg.norm(g_room, axis = 1)
+    norms = jax.lax.stop_gradient(jnp.linalg.norm(g_room, axis=1))
     g = g_other/norms[:,None]
-    [D, N] = g_room.shape
+
+    D = g_other.shape[0]
+    N = phi_room.shape[0]
     N_shift = int(phi_other.shape[0]/N)
 
     # Measure the resulting norms in each of the rooms and penlise deviations from 1
     norms = jnp.sum(jnp.reshape(jnp.power(g, 2), [D, N_shift, N]), axis = 2)
     return jnp.linalg.norm(norms - 1)/(D*N_shift)
 
-def norm_plane_seq(g0, om, S, phi_room, phi_other):
+def norm_plane_seq(g0, om, S1, S2, phi_room, phi_other):
     # g0 = activity at origin (shape [D, 1])
 
     N = phi_room.shape[0]
@@ -373,18 +373,15 @@ def norm_plane_seq(g0, om, S, phi_room, phi_other):
     g0 = g0 / jnp.linalg.norm(g0)
 
     # Get transformation matrices for room and other positions
-    T_room = helper_functions.get_T_2D(om, phi_room, S)
-    T_other = helper_functions.get_T_2D(om, phi_other, S)
+    T_room = helper_functions.get_T_2D(om, phi_room, S1, S2)
+    T_other = helper_functions.get_T_2D(om, phi_other, S1, S2)
 
     # Apply transformation to g0
-    g_room = jnp.einsum('nij,jk->nik', T_room, g0)
-    g_room = g_room[:, :, 0].T  # Reshape to [D, N]
-
-    g_other = jnp.einsum('nij,jk->nik', T_other, g0)
-    g_other = g_other[:, :, 0].T  # Reshape to [D, N_total]
+    g_room = jnp.einsum('nij,j->in', T_room, g0)
+    g_other = jnp.einsum('nij,j->in', T_other, g0)
 
     # Use the room to normalise the other representations
-    norms = jnp.linalg.norm(g_room, axis=1, keepdims=True)
+    norms = jax.lax.stop_gradient(jnp.linalg.norm(g_room, axis=1, keepdims=True))
     g = g_other / norms
     [D, _] = g_room.shape
 

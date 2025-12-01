@@ -2,7 +2,7 @@ from sweep_analysis import run_parameter_sweep
 from datetime import datetime
 
 base_params = {
-    "D": 64, "T": 150000, "K": 5, "N_rand": 150, "phi_std": 1,
+    "D": 64, "T": 150000, "K": 3, "N_rand": 150, "phi_std": 1,
     "N_shift": 15, "resample_iters": 5, "save_iters": 5, "print_iters": 1000,
     "lambda_pos_init": 0.1, "k_p": -9, "alpha_p": 0.9, "gamma_p": 0.0001,
     "lambda_norm_init": 0.005, "k_norm": -2, "alpha_norm": 0.9,
@@ -17,7 +17,7 @@ base_params = {
 
 # Parameters to sweep over
 sweep_params = {
-    # "k_norm": [-6, -5, -4, -2, 0, 2, 4]
+    "k_norm": [-4, -3, -2, -1, 0]
 }
 
 print("Running parameter sweep...")
@@ -28,7 +28,7 @@ results = run_parameter_sweep(
     sep_loss_choice=3,
     chi_choice=0,
     W_constrain=0,
-    base_savepath=f"data/{datetime.strftime(datetime.now(), '%y%m%d')}/stop_grad",
+    base_savepath=f"data/{datetime.strftime(datetime.now(), '%y%m%d')}/stop_grad2",
     key_seed=0,
     generate_plots=True
 )

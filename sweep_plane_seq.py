@@ -23,7 +23,7 @@ print("Running parameter sweep...")
 results = run_seq_parameter_sweep(
     base_parameters=base_params,
     sweep_params=sweep_params,
-    base_savepath=f"data/{datetime.strftime(datetime.now(), '%y%m%d')}/sequential_stop_grad_norm",
+    base_savepath=f"data/{datetime.strftime(datetime.now(), '%y%m%d')}/sequential_separate_s1_s2",
     key_seed=0,
     generate_plots=True
 )

@@ -65,17 +65,20 @@ def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0)
     # loss_sep = losses.sep_plane_KernChi_seq
     grad_sep_g0 = jit(grad(losses.sep_plane_KernChi_seq, argnums=0))
     grad_sep_om = jit(grad(losses.sep_plane_KernChi_seq, argnums=1))
-    grad_sep_S = jit(grad(losses.sep_plane_KernChi_seq, argnums=2))
+    grad_sep_S1 = jit(grad(losses.sep_plane_KernChi_seq, argnums=2))
+    grad_sep_S2 = jit(grad(losses.sep_plane_KernChi_seq, argnums=3))
     calc_chi = jit(helper_functions.calc_chi_plane)
 
     loss_pos = jit(losses.pos_plane_seq)
     grad_pos_g0 = jit(grad(losses.pos_plane_seq, argnums=0))
     grad_pos_om = jit(grad(losses.pos_plane_seq, argnums=1))
-    grad_pos_S = jit(grad(losses.pos_plane_seq, argnums=2))
+    grad_pos_S1 = jit(grad(losses.pos_plane_seq, argnums=2))
+    grad_pos_S2 = jit(grad(losses.pos_plane_seq, argnums=3))
     loss_norm = jit(losses.norm_plane_seq)
     grad_norm_g0 = jit(grad(losses.norm_plane_seq, argnums=0))
     grad_norm_om = jit(grad(losses.norm_plane_seq, argnums=1))
-    grad_norm_S = jit(grad(losses.norm_plane_seq, argnums=2))
+    grad_norm_S1 = jit(grad(losses.norm_plane_seq, argnums=2))
+    grad_norm_S2 = jit(grad(losses.norm_plane_seq, argnums=3))
     key = random.key(key_seed)
 
     # Setup save file locations
@@ -96,10 +99,12 @@ def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0)
     results = {
         'g0_best_list': [],
         'om_best_list': [],
-        'S_best_list': [],
+        'S1_best_list': [],
+        'S2_best_list': [],
         'g0_final_list': [],
         'om_final_list': [],
-        'S_final_list': [],
+        'S1_final_list': [],
+        'S2_final_list': [],
         'losses_list': [],
         'min_L_list': []
     }
@@ -111,7 +116,9 @@ def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0)
         key, subkey2 = random.split(key)
         om = random.uniform(subkey2, [M, 2]) * om_init_scale
         key, subkey3 = random.split(key)
-        S = random.normal(subkey3, [2*M+1, 2*M+1])
+        S1 = random.normal(subkey3, [2*M+1, 2*M+1])
+        key, subkey4 = random.split(key)
+        S2 = random.normal(subkey4, [2*M+1, 2*M+1])
 
         g0_init = g0
         means_g0 = jnp.zeros(jnp.shape(g0))     # Moments for ADAM
@@ -123,10 +130,15 @@ def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0)
         sec_moms_om = jnp.zeros(jnp.shape(om))
         om_best = om
 
-        S_init = S
-        means_S = jnp.zeros(jnp.shape(S))     # Moments for ADAM
-        sec_moms_S = jnp.zeros(jnp.shape(S))
-        S_best = S
+        S1_init = S1
+        means_S1 = jnp.zeros(jnp.shape(S1))     # Moments for ADAM
+        sec_moms_S1 = jnp.zeros(jnp.shape(S1))
+        S1_best = S1
+
+        S2_init = S2
+        means_S2 = jnp.zeros(jnp.shape(S2))     # Moments for ADAM
+        sec_moms_S2 = jnp.zeros(jnp.shape(S2))
+        S2_best = S2
 
         Losses = np.zeros([4, int(T / save_iters)])
         min_L = np.zeros([5])
@@ -159,26 +171,29 @@ def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0)
                 chi = calc_chi(phi, sigma_theta, f)
 
             # Separation Term
-            L1 = 100*loss_sep(g0, om, S, phi, sigma_sq, chi)
-            g0_grad1 = 100*grad_sep_g0(g0, om, S, phi, sigma_sq, chi)
-            om_grad1 = 100*grad_sep_om(g0, om, S, phi, sigma_sq, chi)
-            S_grad1 = 100*grad_sep_S(g0, om, S, phi, sigma_sq, chi)
+            L1 = 100*loss_sep(g0, om, S1, S2, phi, sigma_sq, chi)
+            g0_grad1 = 100*grad_sep_g0(g0, om, S1, S2, phi, sigma_sq, chi)
+            om_grad1 = 100*grad_sep_om(g0, om, S1, S2, phi, sigma_sq, chi)
+            S1_grad1 = 100*grad_sep_S1(g0, om, S1, S2, phi, sigma_sq, chi)
+            S2_grad1 = 100*grad_sep_S2(g0, om, S1, S2, phi, sigma_sq, chi)
 
             # Positivity Term
-            L2_Here = np.log(loss_pos(g0, om, S, phi_pos, N_shift)) - k_p
+            L2_Here = np.log(loss_pos(g0, om, S1, S2, phi_pos, N_shift)) - k_p
             L2 = L2*alpha_p + (1 - alpha_p)*L2_Here
             lambda_pos = lambda_pos*np.exp(L2*gamma_p)
-            g0_grad2 = grad_pos_g0(g0, om, S, phi_pos, N_shift)
-            om_grad2 = grad_pos_om(g0, om, S, phi_pos, N_shift)
-            S_grad2 = grad_pos_S(g0, om, S, phi_pos, N_shift)
+            g0_grad2 = grad_pos_g0(g0, om, S1, S2, phi_pos, N_shift)
+            om_grad2 = grad_pos_om(g0, om, S1, S2, phi_pos, N_shift)
+            S1_grad2 = grad_pos_S1(g0, om, S1, S2, phi_pos, N_shift)
+            S2_grad2 = grad_pos_S2(g0, om, S1, S2, phi_pos, N_shift)
 
             # Norm Term
-            L3_Here = np.log(loss_norm(g0, om, S, phi, phi_norm)) - k_norm
+            L3_Here = np.log(loss_norm(g0, om, S1, S2, phi, phi_norm)) - k_norm
             L3 = L3 * alpha_norm + (1 - alpha_norm) * L3_Here
             lambda_norm = lambda_norm * np.exp(L3 * gamma_norm)
-            g0_grad3 = grad_norm_g0(g0, om, S, phi, phi_norm)
-            om_grad3 = grad_norm_om(g0, om, S, phi, phi_norm)
-            S_grad3 = grad_norm_S(g0, om, S, phi, phi_norm)
+            g0_grad3 = grad_norm_g0(g0, om, S1, S2, phi, phi_norm)
+            om_grad3 = grad_norm_om(g0, om, S1, S2, phi, phi_norm)
+            S1_grad3 = grad_norm_S1(g0, om, S1, S2, phi, phi_norm)
+            S2_grad3 = grad_norm_S2(g0, om, S1, S2, phi, phi_norm)
 
             # Update the moment averages, then bias correct them
             g0_grad = g0_grad1 + lambda_pos*g0_grad2 + lambda_norm*g0_grad3
@@ -193,11 +208,17 @@ def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0)
             means_debiased_om = means_om / (1 - np.power(beta1, step + 1))
             sec_moms_debiased_om = sec_moms_om / (1 - np.power(beta2, step + 1))
 
-            S_grad = S_grad1 + lambda_pos*S_grad2 + lambda_norm*S_grad3
-            means_S = beta1*means_S + (1 - beta1)*S_grad
-            sec_moms_S = beta2*sec_moms_S + (1 - beta2)*np.power(S_grad, 2)
-            means_debiased_S = means_S/(1 - np.power(beta1, step+1))
-            sec_moms_debiased_S = sec_moms_S/(1 - np.power(beta2, step + 1))
+            S1_grad = S1_grad1 + lambda_pos*S1_grad2 + lambda_norm*S1_grad3
+            means_S1 = beta1*means_S1 + (1 - beta1)*S1_grad
+            sec_moms_S1 = beta2*sec_moms_S1 + (1 - beta2)*np.power(S1_grad, 2)
+            means_debiased_S1 = means_S1/(1 - np.power(beta1, step+1))
+            sec_moms_debiased_S1 = sec_moms_S1/(1 - np.power(beta2, step + 1))
+
+            S2_grad = S2_grad1 + lambda_pos*S2_grad2 + lambda_norm*S2_grad3
+            means_S2 = beta1*means_S2 + (1 - beta1)*S2_grad
+            sec_moms_S2 = beta2*sec_moms_S2 + (1 - beta2)*np.power(S2_grad, 2)
+            means_debiased_S2 = means_S2/(1 - np.power(beta1, step+1))
+            sec_moms_debiased_S2 = sec_moms_S2/(1 - np.power(beta2, step + 1))
 
             if step % save_iters == 0:        # Save and print the appropriate losses
                 if L2 > 0:
@@ -223,7 +244,8 @@ def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0)
             # Take parameter step
             g0 = g0 - epsilon_g0*means_debiased_g0/(np.sqrt(sec_moms_debiased_g0 + eta))
             om = om - epsilon_om * means_debiased_om / (np.sqrt(sec_moms_debiased_om + eta))
-            S = S - epsilon_s*means_debiased_S/(np.sqrt(sec_moms_debiased_S + eta))
+            S1 = S1 - epsilon_s*means_debiased_S1/(np.sqrt(sec_moms_debiased_S1 + eta))
+            S2 = S2 - epsilon_s*means_debiased_S2/(np.sqrt(sec_moms_debiased_S2 + eta))
 
         # Now save g0 and the losses
         helper_functions.save_obj(g0_best, f"g0_{counter}", savepath)
@@ -232,19 +254,25 @@ def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0)
         helper_functions.save_obj(min_L, f"min_L_{counter}", savepath)
         helper_functions.save_obj(om, f"om_{counter}", savepath)
         helper_functions.save_obj(om_best, f"om_{counter}", savepath)
-        helper_functions.save_obj(S, f"S_{counter}", savepath)
-        helper_functions.save_obj(S_best, f"S_{counter}", savepath)
-        helper_functions.save_obj(S_init, f"S_init_{counter}", savepath)
+        helper_functions.save_obj(S1, f"S1_{counter}", savepath)
+        helper_functions.save_obj(S1_best, f"S1_{counter}", savepath)
+        helper_functions.save_obj(S1_init, f"S1_init_{counter}", savepath)
+        helper_functions.save_obj(S2, f"S2_{counter}", savepath)
+        helper_functions.save_obj(S2_best, f"S2_{counter}", savepath)
+        helper_functions.save_obj(S2_init, f"S2_init_{counter}", savepath)
         helper_functions.save_obj(g0, f"g0_final_{counter}", savepath)
         helper_functions.save_obj(om, f"om_final_{counter}", savepath)
-        helper_functions.save_obj(S, f"S_final_{counter}", savepath)
+        helper_functions.save_obj(S1, f"S1final_{counter}", savepath)
+        helper_functions.save_obj(S2, f"S2_final_{counter}", savepath)
 
         results["g0_best_list"].append(g0_best)
         results["om_best_list"].append(om_best)
-        results["S_best_list"].append(S_best)
+        results["S1_best_list"].append(S1_best)
+        results["S2_best_list"].append(S2_best)
         results["g0_final_list"].append(g0)
         results["om_final_list"].append(om)
-        results["S_final_list"].append(S)
+        results["S1_final_list"].append(S1)
+        results["S2_final_list"].append(S2)
         results["losses_list"].append(Losses)
         results["min_L_list"].append(min_L)
 

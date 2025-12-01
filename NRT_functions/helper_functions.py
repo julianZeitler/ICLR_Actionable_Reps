@@ -104,7 +104,7 @@ def init_irreps_2D(om, phi):
     I = I.at[2::2,:].set(sin_stack)
     return I
 
-def get_T_2D(om, phi, S):
+def get_T_2D(om, phi, S1, S2):
     """
     Compute transformation matrix T(phi) = S @ T_irrep(phi) @ S^(-1)
 
@@ -159,10 +159,10 @@ def get_T_2D(om, phi, S):
         T_irrep = T_irrep.at[:, idx2, idx2].set(cos_val)
 
     # Compute T = S @ T_irrep @ S^(-1) for each phi
-    S_inv = jnp.linalg.inv(S)
+    # S_inv = jnp.linalg.inv(S)
 
     # T shape: [N, D, D]
-    T = jnp.einsum('ij,njk,kl->nil', S, T_irrep, S_inv)
+    T = jnp.einsum('ij,njk,kl->nil', S1, T_irrep, S2)
 
     if squeeze_output:
         T = T[0]  # Remove batch dimension: [1, D, D] -> [D, D]

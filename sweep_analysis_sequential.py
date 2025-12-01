@@ -14,7 +14,7 @@ from NRT_functions import helper_functions
 from NRT_functions import plotters
 from PlaneSequential import run_plane_sequential_optimization
 
-def compute_g_at_positions(g0, om, S, phi):
+def compute_g_at_positions(g0, om, S1, S2, phi):
     """
     Compute g(phi) = T(phi) @ g0 where T(phi) = S @ T_irrep(phi) @ S^(-1)
     
@@ -32,14 +32,14 @@ def compute_g_at_positions(g0, om, S, phi):
     g0_processed = g0_processed / jnp.linalg.norm(g0_processed)
     
     # Get transformation matrices
-    T = helper_functions.get_T_2D(om, phi, S)
+    T = helper_functions.get_T_2D(om, phi, S1, S2)
     
     # Apply transformation
     g = jnp.einsum('nij,j->in', T, g0_processed)
     
     return g
 
-def _generate_2d_plots(g0, om, S, parameters, savepath, counter, plot_scale):
+def _generate_2d_plots(g0, om, S1, S2, parameters, savepath, counter, plot_scale):
     figures = {}
 
     fig_freq, ax = plt.subplots(figsize=(8, 8))
@@ -59,20 +59,20 @@ def _generate_2d_plots(g0, om, S, parameters, savepath, counter, plot_scale):
 
     fig_S, axes = plt.subplots(1, 3, figsize=(12, 3))
 
-    im1 = axes[0].imshow(S, cmap='RdBu_r', aspect='equal')
-    axes[0].set_title('S')
+    im1 = axes[0].imshow(S1, cmap='RdBu_r', aspect='equal')
+    axes[0].set_title('S_1')
     axes[0].set_xlabel('Column')
     axes[0].set_ylabel('Row')
     plt.colorbar(im1, ax=axes[0])
 
-    im1 = axes[1].imshow(jnp.linalg.inv(S), cmap='RdBu_r', aspect='equal')
-    axes[1].set_title('S^-1')
+    im1 = axes[1].imshow(S2, cmap='RdBu_r', aspect='equal')
+    axes[1].set_title('S_2')
     axes[1].set_xlabel('Column')
     axes[1].set_ylabel('Row')
     plt.colorbar(im1, ax=axes[1])
 
-    im1 = axes[2].imshow(S @ jnp.linalg.inv(S), cmap='RdBu_r', aspect='equal')
-    axes[2].set_title('S @ S^-1')
+    im1 = axes[2].imshow(S1 @ S2, cmap='RdBu_r', aspect='equal')
+    axes[2].set_title('S_1 @ S_2')
     axes[2].set_xlabel('Column')
     axes[2].set_ylabel('Row')
     plt.colorbar(im1, ax=axes[2])
@@ -95,8 +95,8 @@ def _generate_2d_plots(g0, om, S, parameters, savepath, counter, plot_scale):
                                  np.ndarray.flatten(phi_plot_large[1])[:,None]])
     
     # Compute activities using transformation
-    V_small = np.array(compute_g_at_positions(g0, om, S, phi_plot_small))
-    V_large = np.array(compute_g_at_positions(g0, om, S, phi_plot_large))
+    V_small = np.array(compute_g_at_positions(g0, om, S1, S2, phi_plot_small))
+    V_large = np.array(compute_g_at_positions(g0, om, S1, S2, phi_plot_large))
     
     # Normalize by large room norms
     large_norms = np.linalg.norm(V_large, axis=0, keepdims=True)
@@ -122,10 +122,10 @@ def _generate_2d_plots(g0, om, S, parameters, savepath, counter, plot_scale):
     # Calculate loss for each neuron
     for neuron in range(parameters["D"]):
         g0_neuron = g0[neuron:neuron+1]
-        neur_losses[neuron] = losses.sep_plane_KernChi_seq(g0_neuron, om, S, phi_calc, sigma_sq, chi)
+        neur_losses[neuron] = losses.sep_plane_KernChi_seq(g0_neuron, om, S1, S2, phi_calc, sigma_sq, chi)
     
     # Overall loss
-    overall_loss = losses.sep_plane_KernChi_seq(g0, om, S, phi_calc, sigma_sq, chi)
+    overall_loss = losses.sep_plane_KernChi_seq(g0, om, S1, S2, phi_calc, sigma_sq, chi)
     
     Vs = [V_small, V_large]
     phi_plots = [phi_plot_small, phi_plot_large]
@@ -196,8 +196,11 @@ def generate_analysis_plots(savepath: str, counter: int = 0, plot_scale: float =
     with open(os.path.join(savepath, f'om{adding_string}{counter}.pkl'), 'rb') as f:
         om = pickle.load(f)
 
-    with open(os.path.join(savepath, f'S{adding_string}{counter}.pkl'), 'rb') as f:
-        S = pickle.load(f)
+    with open(os.path.join(savepath, f'S1{adding_string}{counter}.pkl'), 'rb') as f:
+        S1 = pickle.load(f)
+    
+    with open(os.path.join(savepath, f'S2{adding_string}{counter}.pkl'), 'rb') as f:
+        S2 = pickle.load(f)
 
     with open(os.path.join(savepath, f'min_L{adding_string}{counter}.pkl'), 'rb') as f:
         min_L = pickle.load(f)
@@ -208,8 +211,11 @@ def generate_analysis_plots(savepath: str, counter: int = 0, plot_scale: float =
     with open(os.path.join(savepath, f'g0_init{adding_string}{counter}.pkl'), 'rb') as f:
         g0_init = pickle.load(f)
     
-    with open(os.path.join(savepath, f'S_init{adding_string}{counter}.pkl'), 'rb') as f:
-        S_init = pickle.load(f)
+    with open(os.path.join(savepath, f'S1_init{adding_string}{counter}.pkl'), 'rb') as f:
+        S1_init = pickle.load(f)
+    
+    with open(os.path.join(savepath, f'S2_init{adding_string}{counter}.pkl'), 'rb') as f:
+        S2_init = pickle.load(f)
 
     try:
         with open(os.path.join(savepath, f'g0_final{adding_string}{counter}.pkl'), 'rb') as pickle_file:
@@ -218,21 +224,25 @@ def generate_analysis_plots(savepath: str, counter: int = 0, plot_scale: float =
         g0_final = g0
 
     try:
-        with open(os.path.join(savepath, f'S_final{adding_string}{counter}.pkl'), 'rb') as pickle_file:
-            S_final = pickle.load(pickle_file)
+        with open(os.path.join(savepath, f'S1_final{adding_string}{counter}.pkl'), 'rb') as pickle_file:
+            S1_final = pickle.load(pickle_file)
+        with open(os.path.join(savepath, f'S2_final{adding_string}{counter}.pkl'), 'rb') as pickle_file:
+            S2_final = pickle.load(pickle_file)
     except:
-        S_final = S
+        S1_final = S1
+        S2_final = S2
 
     # Use final weights if min_L indicates
     if min_L[0] < 1: # min_L[0] is counter
-        S = S_final
+        S1 = S1_final
+        S2 = S2_final
         g0 = g0_final
 
     # Generate dimension-specific plots
     if parameters["dim"] == 1:
         pass
     elif parameters["dim"] == 2:
-        figures.update(_generate_2d_plots(g0, om, S, parameters, savepath, counter, plot_scale))
+        figures.update(_generate_2d_plots(g0, om, S1, S2, parameters, savepath, counter, plot_scale))
 
     # Generate loss plots (common to all dimensions)
     fig_loss = _generate_loss_plots(L, min_L)
