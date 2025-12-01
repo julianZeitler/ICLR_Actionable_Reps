@@ -226,8 +226,7 @@ def pos_plane_seq(g0, om, S, phi, N_shift):
 
     # Apply transformation to g0 for each position
     # T: [N, D, D], g0: [D, 1] -> g: [N, D, 1] -> [D, N]
-    g = jnp.einsum('nij,jk->nik', T, g0)  # Result: [N, D, 1]
-    g = g[:, :, 0].T  # Reshape to [D, N]
+    g = jnp.einsum('nij,j->in', T, g0)
 
     # Normalize g
     norms = jnp.linalg.norm(g, axis=0, keepdims=True) / (N_shift + 1)
@@ -312,8 +311,7 @@ def sep_plane_KernChi_seq(g0, om, S, phi, sigma_sq, chi):
 
     # Apply transformation to g0 for each position
     # T: [N, D, D], g0: [D, 1] -> g: [N, D, 1] -> [D, N]
-    g = jnp.einsum('nij,jk->nik', T, g0)  # Result: [N, D, 1]
-    g = g[:, :, 0].T  # Reshape to [D, N]
+    g = jnp.einsum('nij,j->in', T, g0)
 
     # Normalize g
     norms = jnp.linalg.norm(g, axis=0, keepdims=True)
@@ -377,11 +375,8 @@ def norm_plane_seq(g0, om, S, phi_room, phi_other):
     T_other = helper_functions.get_T_2D(om, phi_other, S)
 
     # Apply transformation to g0
-    g_room = jnp.einsum('nij,jk->nik', T_room, g0)
-    g_room = g_room[:, :, 0].T  # Reshape to [D, N]
-
-    g_other = jnp.einsum('nij,jk->nik', T_other, g0)
-    g_other = g_other[:, :, 0].T  # Reshape to [D, N_total]
+    g_room = jnp.einsum('nij,j->in', T_room, g0)
+    g_other = jnp.einsum('nij,j->in', T_other, g0)
 
     # Use the room to normalise the other representations
     norms = jnp.linalg.norm(g_room, axis=1, keepdims=True)
