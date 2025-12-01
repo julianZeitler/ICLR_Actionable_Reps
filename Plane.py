@@ -187,7 +187,9 @@ def run_plane_optimization(parameters, om_init_scheme, sep_loss_choice, chi_choi
         'W_final_list': [],
         'om_final_list': [],
         'losses_list': [],
-        'min_L_list': []
+        'min_L_list': [],
+        'lambda_pos_list': [],
+        'lambda_norm_list': []
     }
 
     for counter in range(K):
@@ -224,6 +226,8 @@ def run_plane_optimization(parameters, om_init_scheme, sep_loss_choice, chi_choi
         om_best = om
 
         Losses = np.zeros([4, int(T / save_iters)])
+        Lambdas_pos = np.zeros(int(T / save_iters))
+        Lambdas_norm = np.zeros(int(T / save_iters))
         min_L = np.zeros([5])
         min_L[1] = np.inf
         L2 = 0
@@ -320,6 +324,8 @@ def run_plane_optimization(parameters, om_init_scheme, sep_loss_choice, chi_choi
                 Losses[1, save_counter] = L1
                 Losses[2, save_counter] = L2_Here
                 Losses[3, save_counter] = L3_Here
+                Lambdas_pos[save_counter] = lambda_pos
+                Lambdas_norm[save_counter] = lambda_norm
                 save_counter = save_counter + 1
 
             if step % print_iters == 0:
@@ -347,6 +353,8 @@ def run_plane_optimization(parameters, om_init_scheme, sep_loss_choice, chi_choi
         helper_functions.save_obj(om_best, f"om_{counter}", savepath)
         helper_functions.save_obj(W, f"W_final_{counter}", savepath)
         helper_functions.save_obj(om, f"om_final_{counter}", savepath)
+        helper_functions.save_obj(Lambdas_pos, f"lambda_pos_{counter}", savepath)
+        helper_functions.save_obj(Lambdas_norm, f"lambda_norm_{counter}", savepath)
 
         # Store results
         results['W_best_list'].append(W_best)
@@ -355,6 +363,8 @@ def run_plane_optimization(parameters, om_init_scheme, sep_loss_choice, chi_choi
         results['om_final_list'].append(om)
         results['losses_list'].append(Losses)
         results['min_L_list'].append(min_L)
+        results['lambda_pos_list'].append(Lambdas_pos)
+        results['lambda_norm_list'].append(Lambdas_norm)
 
         print(f"\nDONE ITERATION {counter}: Min_Loss = {min_L[1]:.5f}\n")
 

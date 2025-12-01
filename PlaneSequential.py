@@ -101,7 +101,9 @@ def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0)
         'om_final_list': [],
         'S_final_list': [],
         'losses_list': [],
-        'min_L_list': []
+        'min_L_list': [],
+        'lambda_pos_list': [],
+        'lambda_norm_list': []
     }
 
     for counter in range(K):
@@ -129,6 +131,8 @@ def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0)
         S_best = S
 
         Losses = np.zeros([4, int(T / save_iters)])
+        Lambdas_pos = np.zeros(int(T / save_iters))
+        Lambdas_norm = np.zeros(int(T / save_iters))
         min_L = np.zeros([5])
         min_L[1] = np.inf
         L2 = 0
@@ -209,6 +213,8 @@ def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0)
                 Losses[1, save_counter] = L1
                 Losses[2, save_counter] = L2_Here
                 Losses[3, save_counter] = L3_Here
+                Lambdas_pos[save_counter] = lambda_pos
+                Lambdas_norm[save_counter] = lambda_norm
                 save_counter = save_counter + 1
 
             if step % print_iters == 0:
@@ -238,6 +244,8 @@ def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0)
         helper_functions.save_obj(g0, f"g0_final_{counter}", savepath)
         helper_functions.save_obj(om, f"om_final_{counter}", savepath)
         helper_functions.save_obj(S, f"S_final_{counter}", savepath)
+        helper_functions.save_obj(Lambdas_pos, f"lambda_pos_{counter}", savepath)
+        helper_functions.save_obj(Lambdas_norm, f"lambda_norm_{counter}", savepath)
 
         results["g0_best_list"].append(g0_best)
         results["om_best_list"].append(om_best)
@@ -247,6 +255,8 @@ def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0)
         results["S_final_list"].append(S)
         results["losses_list"].append(Losses)
         results["min_L_list"].append(min_L)
+        results["lambda_pos_list"].append(Lambdas_pos)
+        results["lambda_norm_list"].append(Lambdas_norm)
 
         # And print to say iteration done
         print(f"\nDONE ITERATION {counter}: Min_Loss = {min_L[1]:.5f}\n")
@@ -256,7 +266,7 @@ def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0)
 
 
 if __name__ == "__main__":
-    T = 30000                   # How many gradient steps
+    T = 5000                   # How many gradient steps
     D = 65                      # How many neurons
     K = 1                       # How many repeats to run
     N_rand = 150                # How many random angles, to use for separation loss
@@ -311,6 +321,6 @@ if __name__ == "__main__":
 
     results = run_plane_sequential_optimization(
         parameters=parameters,
-        savepath=f"data/{datetime.strftime(datetime.now(), '%y%m%d')}/seq_no_norm_noise",
+        savepath=None, #f"data/{datetime.strftime(datetime.now(), '%y%m%d')}/seq_no_norm_noise",
         key_seed=0
     )
