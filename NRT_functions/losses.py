@@ -225,11 +225,10 @@ def pos_plane_seq(g0, om, S, phi, N_shift):
     T = helper_functions.get_T_2D(om, phi, S)
 
     # Apply transformation to g0 for each position
-    # T: [N, D, D], g0: [D, 1] -> g: [N, D, 1] -> [D, N]
     g = jnp.einsum('nij,j->in', T, g0)
 
     # Normalize g
-    norms = jnp.linalg.norm(g, axis=0, keepdims=True) / (N_shift + 1)
+    norms = jnp.linalg.norm(g, axis=1, keepdims=True) / (N_shift + 1)
     g = g / norms
     [D, N] = g.shape
 
@@ -310,11 +309,10 @@ def sep_plane_KernChi_seq(g0, om, S, phi, sigma_sq, chi):
     T = helper_functions.get_T_2D(om, phi, S)
 
     # Apply transformation to g0 for each position
-    # T: [N, D, D], g0: [D, 1] -> g: [N, D, 1] -> [D, N]
     g = jnp.einsum('nij,j->in', T, g0)
 
     # Normalize g
-    norms = jnp.linalg.norm(g, axis=0, keepdims=True)
+    norms = jnp.linalg.norm(g, axis=1, keepdims=True)
     g = g / norms
 
     # measure separation
@@ -351,7 +349,7 @@ def norm_plane(W, om, phi_room, phi_other):
     # Use the room to normalise the other representations
     g_room = jnp.matmul(W, I_room)
     g_other = jnp.matmul(W, I_other)
-    norms = jnp.linalg.norm(g_room, axis = 1)
+    norms = jax.lax.stop_gradient(jnp.linalg.norm(g_room, axis = 1))
     g = g_other/norms[:,None]
     [D, N] = g_room.shape
     N_shift = int(phi_other.shape[0]/N)
@@ -379,12 +377,12 @@ def norm_plane_seq(g0, om, S, phi_room, phi_other):
     g_other = jnp.einsum('nij,j->in', T_other, g0)
 
     # Use the room to normalise the other representations
-    norms = jnp.linalg.norm(g_room, axis=1, keepdims=True)
+    norms = jax.lax.stop_gradient(jnp.linalg.norm(g_room, axis=1, keepdims=True))
     g = g_other / norms
     [D, _] = g_room.shape
 
     # Measure the resulting norms in each of the rooms and penalise deviations from 1
-    norms = jnp.sum(jnp.reshape(jnp.power(g, 2), [D, N_shift, N]), axis = 2)
+    norms = jnp.sum(jnp.reshape(jnp.power(g_other, 2), [D, N_shift, N]), axis = 2)
     return jnp.linalg.norm(norms - 1)/(D*N_shift)
 
 # Set of losses for the sphere

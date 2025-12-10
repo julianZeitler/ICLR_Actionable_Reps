@@ -9,7 +9,7 @@ import os
 from NRT_functions import helper_functions
 from NRT_functions import losses
 
-def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0):
+def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0, g0_init = None, om_init = None, S_init = None):
     """
     Run plane optimization with given parameters.
 
@@ -69,10 +69,12 @@ def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0)
     calc_chi = jit(helper_functions.calc_chi_plane)
 
     loss_pos = jit(losses.pos_plane_seq)
+    # loss_pos = losses.pos_plane_seq
     grad_pos_g0 = jit(grad(losses.pos_plane_seq, argnums=0))
     grad_pos_om = jit(grad(losses.pos_plane_seq, argnums=1))
     grad_pos_S = jit(grad(losses.pos_plane_seq, argnums=2))
     loss_norm = jit(losses.norm_plane_seq)
+    # loss_norm = losses.norm_plane_seq
     grad_norm_g0 = jit(grad(losses.norm_plane_seq, argnums=0))
     grad_norm_om = jit(grad(losses.norm_plane_seq, argnums=1))
     grad_norm_S = jit(grad(losses.norm_plane_seq, argnums=2))
@@ -108,24 +110,35 @@ def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0)
 
     for counter in range(K):
         # Randomly initialise g0, losses, moments, and best g0 and loss
-        key, subkey1 = random.split(key)
-        g0 = random.normal(subkey1, [2*M+1])    # Activity at origin
-        key, subkey2 = random.split(key)
-        om = random.uniform(subkey2, [M, 2]) * om_init_scale
-        key, subkey3 = random.split(key)
-        S = random.normal(subkey3, [2*M+1, 2*M+1])
+        if g0_init is None:
+            key, subkey1 = random.split(key)
+            g0 = random.normal(subkey1, [2*M+1])    # Activity at origin
+        else:
+            g0 = g0_init
 
-        g0_init = g0
+        if om_init is None:
+            key, subkey2 = random.split(key)
+            om = random.uniform(subkey2, [M, 2]) * om_init_scale
+        else:
+            om = om_init
+
+        if S_init is None:
+            key, subkey3 = random.split(key)
+            S = random.normal(subkey3, [2*M+1, 2*M+1])
+        else:
+            S = S_init
+
+        g0_init_save = g0
         means_g0 = jnp.zeros(jnp.shape(g0))     # Moments for ADAM
         sec_moms_g0 = jnp.zeros(jnp.shape(g0))
         g0_best = g0                          # Initialise best g0 somewhere
 
-        om_init = om
+        om_init_save = om
         means_om = jnp.zeros(jnp.shape(om))  # Moments for ADAM
         sec_moms_om = jnp.zeros(jnp.shape(om))
         om_best = om
 
-        S_init = S
+        S_init_save = S
         means_S = jnp.zeros(jnp.shape(S))     # Moments for ADAM
         sec_moms_S = jnp.zeros(jnp.shape(S))
         S_best = S
@@ -225,6 +238,7 @@ def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0)
                 min_L = [save_counter-1, Losses[0, save_counter-1], Losses[1, save_counter-1], Losses[2, save_counter-1]]
                 g0_best = g0
                 om_best = om
+                S_best = S
 
             # Take parameter step
             g0 = g0 - epsilon_g0*means_debiased_g0/(np.sqrt(sec_moms_debiased_g0 + eta))
@@ -233,14 +247,14 @@ def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0)
 
         # Now save g0 and the losses
         helper_functions.save_obj(g0_best, f"g0_{counter}", savepath)
-        helper_functions.save_obj(g0_init, f"g0_init_{counter}", savepath)
+        helper_functions.save_obj(g0_init_save, f"g0_init_{counter}", savepath)
         helper_functions.save_obj(Losses, f"L_{counter}", savepath)
         helper_functions.save_obj(min_L, f"min_L_{counter}", savepath)
         helper_functions.save_obj(om, f"om_{counter}", savepath)
         helper_functions.save_obj(om_best, f"om_{counter}", savepath)
         helper_functions.save_obj(S, f"S_{counter}", savepath)
         helper_functions.save_obj(S_best, f"S_{counter}", savepath)
-        helper_functions.save_obj(S_init, f"S_init_{counter}", savepath)
+        helper_functions.save_obj(S_init_save, f"S_init_{counter}", savepath)
         helper_functions.save_obj(g0, f"g0_final_{counter}", savepath)
         helper_functions.save_obj(om, f"om_final_{counter}", savepath)
         helper_functions.save_obj(S, f"S_final_{counter}", savepath)
