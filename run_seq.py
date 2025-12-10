@@ -28,13 +28,16 @@ if init_dir is not None:
         g0_init = pickle.load(f)
     with open(os.path.join(init_dir, f'om_{counter}.pkl'), 'rb') as f:
         om_init = pickle.load(f)
-    with open(os.path.join(init_dir, f'S_{counter}.pkl'), 'rb') as f:
-        S_init = pickle.load(f)
+    with open(os.path.join(init_dir, f'S1_{counter}.pkl'), 'rb') as f:
+        S1_init = pickle.load(f)
+    with open(os.path.join(init_dir, f'S2_{counter}.pkl'), 'rb') as f:
+        S2_init = pickle.load(f)
     print("Initial values loaded successfully")
 else:
     g0_init = None
     om_init = None
-    S_init = None
+    S1_init = None
+    S2_init = None
     print("Using random initialization")
 
 print("Running optimization...")
@@ -44,7 +47,8 @@ results = run_plane_sequential_optimization(
     key_seed=0,
     g0_init=g0_init,
     om_init=om_init,
-    S_init=S_init
+    S1_init=S1_init,
+    S2_init=S2_init
 )
 
 print("\nOptimization completed!")
