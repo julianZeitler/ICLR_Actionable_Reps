@@ -2,7 +2,7 @@ from sweep_analysis_sequential import run_seq_parameter_sweep
 from datetime import datetime
 
 base_params = {
-    "D": 65, "T": 100000, "K": 1, "N_rand": 150, "phi_std": 1,
+    "D": 65, "T": 30000, "K": 3, "N_rand": 150, "phi_std": 1,
     "N_shift": 15, "resample_iters": 5, "save_iters": 5, "print_iters": 1000,
     "lambda_pos_init": 0.1, "k_p": -9, "alpha_p": 0.9, "gamma_p": 0.0001,
     "lambda_norm_init": 0.005, "k_norm": -2, "alpha_norm": 0.9,
@@ -16,7 +16,7 @@ base_params = {
 
 # Parameters to sweep over
 sweep_params = {
-    # "k_norm": [-4, -3, -2, -1, 0]
+    "k_norm": [-2, 8, 10]
 }
 
 print("Running parameter sweep...")

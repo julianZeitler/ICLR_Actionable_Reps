@@ -36,10 +36,13 @@ def compute_g_at_positions(g0, om, S1, S2, phi):
     
     # Apply transformation
     g = jnp.einsum('nij,j->in', T, g0_processed)
+
+    norms = jnp.linalg.norm(g, axis=1, keepdims=True)
+    g = g / norms
     
     return g
 
-def _generate_2d_plots(g0, om, S1, S2, parameters, savepath, counter, plot_scale):
+def generate_2d_plots(g0, om, S1, S2, parameters, savepath, counter, plot_scale):
     figures = {}
 
     fig_freq, ax = plt.subplots(figsize=(8, 8))
@@ -149,15 +152,47 @@ def _generate_2d_plots(g0, om, S1, S2, parameters, savepath, counter, plot_scale
     
     return figures
 
-def _generate_loss_plots(L, min_L):
-    """Generate loss evolution plots."""
+def generate_loss_plots(L, min_L, lambda_pos=None, lambda_norm=None):
+    """Generate loss evolution plots.
+
+    Args:
+        L: Loss array of shape [4, n_iters] containing [total, separation, positivity, norm]
+        min_L: Minimum loss information
+        lambda_pos: Optional array of lambda_pos values over iterations
+        lambda_norm: Optional array of lambda_norm values over iterations
+    """
     titles = ['Loss', 'Separation', 'Positivity', 'Norm']
-    fig = plt.figure(figsize=(12, 8))
+    fig = plt.figure(figsize=(20, 8))
 
     for counter in range(4):
-        plt.subplot(1, 4, counter + 1)
-        plt.plot(L[counter, :])
-        plt.title(titles[counter])
+        ax1 = plt.subplot(1, 4, counter + 1)
+        color1 = 'tab:blue'
+        ax1.plot(L[counter, :], color=color1)
+        ax1.set_xlabel('Iteration (x save_iters)')
+        ax1.set_ylabel(titles[counter], color=color1)
+        ax1.tick_params(axis='y', labelcolor=color1)
+        ax1.set_title(titles[counter])
+
+        # Add second y-axis for lambda values on Positivity (counter=2) and Norm (counter=3)
+        if counter == 2 and lambda_pos is not None:
+            ax2 = ax1.twinx()
+            color2 = 'tab:orange'
+            ax2.plot(lambda_pos, color=color2, alpha=0.7, linestyle='--')
+            ax2.set_ylabel('lambda_pos', color=color2)
+            ax2.tick_params(axis='y', labelcolor=color2)
+            # Ensure lambda plot is visually above by setting higher zorder
+            ax2.set_zorder(ax1.get_zorder() + 1)
+            ax1.set_frame_on(False)
+
+        elif counter == 3 and lambda_norm is not None:
+            ax2 = ax1.twinx()
+            color2 = 'tab:red'
+            ax2.plot(lambda_norm, color=color2, alpha=0.7, linestyle='--')
+            ax2.set_ylabel('lambda_norm', color=color2)
+            ax2.tick_params(axis='y', labelcolor=color2)
+            # Ensure lambda plot is visually above by setting higher zorder
+            ax2.set_zorder(ax1.get_zorder() + 1)
+            ax1.set_frame_on(False)
 
     plt.suptitle(f'Min Loss: {min_L[1]:.3f}')
     plt.tight_layout()
@@ -232,6 +267,19 @@ def generate_analysis_plots(savepath: str, counter: int = 0, plot_scale: float =
         S1_final = S1
         S2_final = S2
 
+    # Load lambda arrays if they exist
+    try:
+        with open(os.path.join(savepath, f'lambda_pos{adding_string}{counter}.pkl'), 'rb') as f:
+            lambda_pos = pickle.load(f)
+    except:
+        lambda_pos = None
+
+    try:
+        with open(os.path.join(savepath, f'lambda_norm{adding_string}{counter}.pkl'), 'rb') as f:
+            lambda_norm = pickle.load(f)
+    except:
+        lambda_norm = None
+
     # Use final weights if min_L indicates
     if min_L[0] < 1: # min_L[0] is counter
         S1 = S1_final
@@ -242,10 +290,10 @@ def generate_analysis_plots(savepath: str, counter: int = 0, plot_scale: float =
     if parameters["dim"] == 1:
         pass
     elif parameters["dim"] == 2:
-        figures.update(_generate_2d_plots(g0, om, S1, S2, parameters, savepath, counter, plot_scale))
+        figures.update(generate_2d_plots(g0, om, S1, S2, parameters, savepath, counter, plot_scale))
 
     # Generate loss plots (common to all dimensions)
-    fig_loss = _generate_loss_plots(L, min_L)
+    fig_loss = generate_loss_plots(L, min_L, lambda_pos, lambda_norm)
     figures['losses'] = fig_loss
     fig_loss.savefig(os.path.join(savepath, f"Losses_{counter}.png"))
 
@@ -256,7 +304,10 @@ def run_seq_parameter_sweep(
     sweep_params: Dict[str, List[Any]],
     base_savepath: Optional[str] = None,
     key_seed: int = 0,
-    generate_plots: bool = True
+    generate_plots: bool = True,
+    g0_init: Optional[Any] = None,
+    om_init: Optional[Any] = None,
+    S_init: Optional[Any] = None
 ) -> List[Dict[str, Any]]:
     """
     Run a parameter sweep over specified parameter combinations.
@@ -265,13 +316,12 @@ def run_seq_parameter_sweep(
         base_parameters: Base parameter dictionary (will be copied and modified for each run)
         sweep_params: Dictionary mapping parameter names to lists of values to sweep over
                       Example: {'lambda_pos_init': [0.05, 0.1, 0.15], 'k_p': [-8, -9, -10]}
-        om_init_scheme: Frequency initialization scheme
-        sep_loss_choice: Separation loss choice
-        chi_choice: Chi function choice
-        W_constrain: Whether to constrain W matrix
         base_savepath: Base directory for saving results (subdirs created for each run)
         key_seed: Starting random seed (incremented for each run)
         generate_plots: Whether to generate analysis plots for each run
+        g0_init: Optional initial values for g0 parameter (if None, random initialization)
+        om_init: Optional initial values for om parameter (if None, random initialization)
+        S_init: Optional initial values for S parameter (if None, random initialization)
 
     Returns:
         List of dictionaries containing results and metadata for each run
@@ -289,6 +339,11 @@ def run_seq_parameter_sweep(
 
     results = []
 
+    if base_savepath is None:
+        today = datetime.strftime(datetime.now(), '%y%m%d')
+        now = datetime.strftime(datetime.now(), '%H%M%S')
+        base_savepath = f"data/{today}/sweep_{now}/"
+
     for idx, combo in enumerate(combinations):
         print(f"\n{'-'*80}")
         print(f"Run {idx + 1}/{len(combinations)}")
@@ -302,13 +357,7 @@ def run_seq_parameter_sweep(
         for param_name, param_value in zip(param_names, combo):
             run_parameters[param_name] = param_value
 
-        # Create unique savepath for this run
-        if base_savepath is None:
-            today = datetime.strftime(datetime.now(), '%y%m%d')
-            now = datetime.strftime(datetime.now(), '%H%M%S')
-            run_savepath = f"data/{today}/sweep_{now}/run{idx:03d}/"
-        else:
-            run_savepath = os.path.join(base_savepath, f"run{idx:03d}/")
+        run_savepath = os.path.join(base_savepath, f"run{idx:03d}/")
 
         # Ensure directory exists
         os.makedirs(run_savepath, exist_ok=True)
@@ -328,7 +377,10 @@ def run_seq_parameter_sweep(
             opt_results = run_plane_sequential_optimization(
                 parameters=run_parameters,
                 savepath=run_savepath,
-                key_seed=key_seed + idx
+                key_seed=key_seed + idx,
+                g0_init=g0_init,
+                om_init=om_init,
+                S_init=S_init
             )
 
             # Generate analysis plots

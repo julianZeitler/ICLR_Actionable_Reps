@@ -9,7 +9,7 @@ import os
 from NRT_functions import helper_functions
 from NRT_functions import losses
 
-def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0):
+def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0, g0_init = None, om_init = None, S1_init = None, S2_init = None):
     """
     Run plane optimization with given parameters.
 
@@ -70,11 +70,13 @@ def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0)
     calc_chi = jit(helper_functions.calc_chi_plane)
 
     loss_pos = jit(losses.pos_plane_seq)
+    # loss_pos = losses.pos_plane_seq
     grad_pos_g0 = jit(grad(losses.pos_plane_seq, argnums=0))
     grad_pos_om = jit(grad(losses.pos_plane_seq, argnums=1))
     grad_pos_S1 = jit(grad(losses.pos_plane_seq, argnums=2))
     grad_pos_S2 = jit(grad(losses.pos_plane_seq, argnums=3))
     loss_norm = jit(losses.norm_plane_seq)
+    # loss_norm = losses.norm_plane_seq
     grad_norm_g0 = jit(grad(losses.norm_plane_seq, argnums=0))
     grad_norm_om = jit(grad(losses.norm_plane_seq, argnums=1))
     grad_norm_S1 = jit(grad(losses.norm_plane_seq, argnums=2))
@@ -106,41 +108,54 @@ def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0)
         'S1_final_list': [],
         'S2_final_list': [],
         'losses_list': [],
-        'min_L_list': []
+        'min_L_list': [],
+        'lambda_pos_list': [],
+        'lambda_norm_list': []
     }
 
     for counter in range(K):
         # Randomly initialise g0, losses, moments, and best g0 and loss
-        key, subkey1 = random.split(key)
-        g0 = random.normal(subkey1, [2*M+1])    # Activity at origin
-        key, subkey2 = random.split(key)
-        om = random.uniform(subkey2, [M, 2]) * om_init_scale
-        key, subkey3 = random.split(key)
-        S1 = random.normal(subkey3, [2*M+1, 2*M+1])
-        key, subkey4 = random.split(key)
-        S2 = random.normal(subkey4, [2*M+1, 2*M+1])
+        if om_init is None:
+            key, subkey2 = random.split(key)
+            om = random.uniform(subkey2, [M, 2]) * om_init_scale
+        else:
+            om = om_init
 
-        g0_init = g0
+        if S1_init is None:
+            key, subkey3 = random.split(key)
+            S1 = random.normal(subkey3, [2*M+1, 2*M+1])
+        else:
+            S1 = S1_init
+        
+        if S2_init is None:
+            key, subkey4 = random.split(key)
+            S2 = random.normal(subkey4, [2*M+1, 2*M+1])
+        else:
+            S2 = S2_init
+
+        g0_init_save = g0
         means_g0 = jnp.zeros(jnp.shape(g0))     # Moments for ADAM
         sec_moms_g0 = jnp.zeros(jnp.shape(g0))
         g0_best = g0                          # Initialise best g0 somewhere
 
-        om_init = om
+        om_init_save = om
         means_om = jnp.zeros(jnp.shape(om))  # Moments for ADAM
         sec_moms_om = jnp.zeros(jnp.shape(om))
         om_best = om
 
-        S1_init = S1
+        S1_init_save = S1
         means_S1 = jnp.zeros(jnp.shape(S1))     # Moments for ADAM
         sec_moms_S1 = jnp.zeros(jnp.shape(S1))
         S1_best = S1
 
-        S2_init = S2
+        S2_init_save = S2
         means_S2 = jnp.zeros(jnp.shape(S2))     # Moments for ADAM
         sec_moms_S2 = jnp.zeros(jnp.shape(S2))
         S2_best = S2
 
         Losses = np.zeros([4, int(T / save_iters)])
+        Lambdas_pos = np.zeros(int(T / save_iters))
+        Lambdas_norm = np.zeros(int(T / save_iters))
         min_L = np.zeros([5])
         min_L[1] = np.inf
         L2 = 0
@@ -230,6 +245,8 @@ def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0)
                 Losses[1, save_counter] = L1
                 Losses[2, save_counter] = L2_Here
                 Losses[3, save_counter] = L3_Here
+                Lambdas_pos[save_counter] = lambda_pos
+                Lambdas_norm[save_counter] = lambda_norm
                 save_counter = save_counter + 1
 
             if step % print_iters == 0:
@@ -240,6 +257,7 @@ def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0)
                 min_L = [save_counter-1, Losses[0, save_counter-1], Losses[1, save_counter-1], Losses[2, save_counter-1]]
                 g0_best = g0
                 om_best = om
+                S_best = S
 
             # Take parameter step
             g0 = g0 - epsilon_g0*means_debiased_g0/(np.sqrt(sec_moms_debiased_g0 + eta))
@@ -249,21 +267,23 @@ def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0)
 
         # Now save g0 and the losses
         helper_functions.save_obj(g0_best, f"g0_{counter}", savepath)
-        helper_functions.save_obj(g0_init, f"g0_init_{counter}", savepath)
+        helper_functions.save_obj(g0_init_save, f"g0_init_{counter}", savepath)
         helper_functions.save_obj(Losses, f"L_{counter}", savepath)
         helper_functions.save_obj(min_L, f"min_L_{counter}", savepath)
         helper_functions.save_obj(om, f"om_{counter}", savepath)
         helper_functions.save_obj(om_best, f"om_{counter}", savepath)
         helper_functions.save_obj(S1, f"S1_{counter}", savepath)
         helper_functions.save_obj(S1_best, f"S1_{counter}", savepath)
-        helper_functions.save_obj(S1_init, f"S1_init_{counter}", savepath)
+        helper_functions.save_obj(S1_init_save, f"S1_init_{counter}", savepath)
         helper_functions.save_obj(S2, f"S2_{counter}", savepath)
         helper_functions.save_obj(S2_best, f"S2_{counter}", savepath)
-        helper_functions.save_obj(S2_init, f"S2_init_{counter}", savepath)
+        helper_functions.save_obj(S2_init_save, f"S2_init_{counter}", savepath)
         helper_functions.save_obj(g0, f"g0_final_{counter}", savepath)
         helper_functions.save_obj(om, f"om_final_{counter}", savepath)
-        helper_functions.save_obj(S1, f"S1final_{counter}", savepath)
+        helper_functions.save_obj(S1, f"S1_final_{counter}", savepath)
         helper_functions.save_obj(S2, f"S2_final_{counter}", savepath)
+        helper_functions.save_obj(Lambdas_pos, f"lambda_pos_{counter}", savepath)
+        helper_functions.save_obj(Lambdas_norm, f"lambda_norm_{counter}", savepath)
 
         results["g0_best_list"].append(g0_best)
         results["om_best_list"].append(om_best)
@@ -275,6 +295,8 @@ def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0)
         results["S2_final_list"].append(S2)
         results["losses_list"].append(Losses)
         results["min_L_list"].append(min_L)
+        results["lambda_pos_list"].append(Lambdas_pos)
+        results["lambda_norm_list"].append(Lambdas_norm)
 
         # And print to say iteration done
         print(f"\nDONE ITERATION {counter}: Min_Loss = {min_L[1]:.5f}\n")
@@ -284,7 +306,7 @@ def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0)
 
 
 if __name__ == "__main__":
-    T = 30000                   # How many gradient steps
+    T = 5000                   # How many gradient steps
     D = 65                      # How many neurons
     K = 1                       # How many repeats to run
     N_rand = 150                # How many random angles, to use for separation loss
@@ -339,6 +361,6 @@ if __name__ == "__main__":
 
     results = run_plane_sequential_optimization(
         parameters=parameters,
-        savepath=f"data/{datetime.strftime(datetime.now(), '%y%m%d')}/seq_no_norm_noise",
+        savepath=None, #f"data/{datetime.strftime(datetime.now(), '%y%m%d')}/seq_no_norm_noise",
         key_seed=0
     )

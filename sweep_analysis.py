@@ -67,18 +67,31 @@ def generate_analysis_plots(savepath: str, counter: int = 0, save_fig: bool = Tr
     if "dim" not in parameters:
         parameters["dim"] = 1
 
+    # Load lambda arrays if they exist
+    try:
+        with open(os.path.join(savepath, f'lambda_pos{adding_string}{counter}.pkl'), 'rb') as f:
+            lambda_pos = pickle.load(f)
+    except:
+        lambda_pos = None
+
+    try:
+        with open(os.path.join(savepath, f'lambda_norm{adding_string}{counter}.pkl'), 'rb') as f:
+            lambda_norm = pickle.load(f)
+    except:
+        lambda_norm = None
+
     # Use final weights if min_L indicates
     if min_L[0] < 1:
         W = W_final
 
     # Generate dimension-specific plots
     if parameters["dim"] == 1:
-        figures.update(_generate_1d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig, counter))
+        figures.update(generate_1d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig, counter))
     elif parameters["dim"] == 2:
-        figures.update(_generate_2d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig, plot_scale, counter))
+        figures.update(generate_2d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig, plot_scale, counter))
 
     # Generate loss plots (common to all dimensions)
-    fig_loss = _generate_loss_plots(L, min_L)
+    fig_loss = generate_loss_plots(L, min_L, lambda_pos, lambda_norm)
     figures['losses'] = fig_loss
     if save_fig:
         fig_loss.savefig(os.path.join(savepath, f"Losses_{counter}.png"))
@@ -86,7 +99,7 @@ def generate_analysis_plots(savepath: str, counter: int = 0, save_fig: bool = Tr
     return figures
 
 
-def _generate_2d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig, plot_scale, counter):
+def generate_2d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig, plot_scale, counter):
     """Generate 2D-specific analysis plots."""
     figures = {}
 
@@ -178,7 +191,7 @@ def _generate_2d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig, 
     return figures
 
 
-def _generate_1d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig, counter):
+def generate_1d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig, counter):
     """Generate 1D-specific analysis plots."""
     figures = {}
 
@@ -253,15 +266,47 @@ def _generate_1d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig, 
     return figures
 
 
-def _generate_loss_plots(L, min_L):
-    """Generate loss evolution plots."""
+def generate_loss_plots(L, min_L, lambda_pos=None, lambda_norm=None):
+    """Generate loss evolution plots.
+
+    Args:
+        L: Loss array of shape [4, n_iters] containing [total, separation, positivity, norm]
+        min_L: Minimum loss information
+        lambda_pos: Optional array of lambda_pos values over iterations
+        lambda_norm: Optional array of lambda_norm values over iterations
+    """
     titles = ['Loss', 'Separation', 'Positivity', 'Norm']
-    fig = plt.figure(figsize=(12, 8))
+    fig = plt.figure(figsize=(20, 8))
 
     for counter in range(4):
-        plt.subplot(1, 4, counter + 1)
-        plt.plot(L[counter, :])
-        plt.title(titles[counter])
+        ax1 = plt.subplot(1, 4, counter + 1)
+        color1 = 'tab:blue'
+        ax1.plot(L[counter, :], color=color1)
+        ax1.set_xlabel('Iteration (x save_iters)')
+        ax1.set_ylabel(titles[counter], color=color1)
+        ax1.tick_params(axis='y', labelcolor=color1)
+        ax1.set_title(titles[counter])
+
+        # Add second y-axis for lambda values on Positivity (counter=2) and Norm (counter=3)
+        if counter == 2 and lambda_pos is not None:
+            ax2 = ax1.twinx()
+            color2 = 'tab:orange'
+            ax2.plot(lambda_pos, color=color2, alpha=0.7, linestyle='--')
+            ax2.set_ylabel('lambda_pos', color=color2)
+            ax2.tick_params(axis='y', labelcolor=color2)
+            # Ensure lambda plot is visually above by setting higher zorder
+            ax2.set_zorder(ax1.get_zorder() + 1)
+            ax1.set_frame_on(False)
+
+        elif counter == 3 and lambda_norm is not None:
+            ax2 = ax1.twinx()
+            color2 = 'tab:red'
+            ax2.plot(lambda_norm, color=color2, alpha=0.7, linestyle='--')
+            ax2.set_ylabel('lambda_norm', color=color2)
+            ax2.tick_params(axis='y', labelcolor=color2)
+            # Ensure lambda plot is visually above by setting higher zorder
+            ax2.set_zorder(ax1.get_zorder() + 1)
+            ax1.set_frame_on(False)
 
     plt.suptitle(f'Min Loss: {min_L[1]:.3f}')
     plt.tight_layout()
