@@ -115,6 +115,12 @@ def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0,
 
     for counter in range(K):
         # Randomly initialise g0, losses, moments, and best g0 and loss
+        if g0_init is None:
+            key, subkey1 = random.split(key)
+            g0 = random.normal(subkey1, [2*M+1])    # Activity at origin
+        else:
+            g0 = g0_init
+
         if om_init is None:
             key, subkey2 = random.split(key)
             om = random.uniform(subkey2, [M, 2]) * om_init_scale
@@ -193,7 +199,11 @@ def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0,
             S2_grad1 = 100*grad_sep_S2(g0, om, S1, S2, phi, sigma_sq, chi)
 
             # Positivity Term
-            L2_Here = np.log(loss_pos(g0, om, S1, S2, phi_pos, N_shift)) - k_p
+            pos = loss_pos(g0, om, S1, S2, phi_pos, N_shift)
+            if pos <= 0:
+                L2_Here = -5
+            else:
+                L2_Here = np.log(pos) - k_p
             L2 = L2*alpha_p + (1 - alpha_p)*L2_Here
             lambda_pos = lambda_pos*np.exp(L2*gamma_p)
             g0_grad2 = grad_pos_g0(g0, om, S1, S2, phi_pos, N_shift)
@@ -257,7 +267,8 @@ def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0,
                 min_L = [save_counter-1, Losses[0, save_counter-1], Losses[1, save_counter-1], Losses[2, save_counter-1]]
                 g0_best = g0
                 om_best = om
-                S_best = S
+                S1_best = S1
+                S2_best = S2
 
             # Take parameter step
             g0 = g0 - epsilon_g0*means_debiased_g0/(np.sqrt(sec_moms_debiased_g0 + eta))

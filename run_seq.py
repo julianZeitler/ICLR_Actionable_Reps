@@ -8,7 +8,7 @@ base_params = {
     "D": 65, "T": 30000, "K": 1, "N_rand": 150, "phi_std": 1,
     "N_shift": 15, "resample_iters": 5, "save_iters": 5, "print_iters": 1000,
     "lambda_pos_init": 0.1, "k_p": -9, "alpha_p": 0.9, "gamma_p": 0.0001,
-    "lambda_norm_init": 0.005, "k_norm": -2, "alpha_norm": 0.9,
+    "lambda_norm_init": 0.005, "k_norm": -3, "alpha_norm": 0.9,
     "gamma_norm": 0.0001, "beta1": 0.9, "beta2": 0.9, "eta": 1e-8,
     "epsilon_g0": 0.1, "epsilon_om": 0.1, "epsilon_s": 0.1, "dim": 2,
     "sampling_choice": 1, "norm_size": 1,
@@ -18,7 +18,7 @@ base_params = {
 }
 
 # Specify directory to load initial values from (set to None for random initialization)
-init_dir = "data/251204/sweep_102520/run000"  # Example: "data/251126/123456/"
+init_dir = None #"data/251204/sweep_102520/run000"  # Example: "data/251126/123456/"
 counter = 0  # Which iteration to load from the previous run
 
 # Load initial values if directory is specified

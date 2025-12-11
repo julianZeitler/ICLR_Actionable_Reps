@@ -307,7 +307,8 @@ def run_seq_parameter_sweep(
     generate_plots: bool = True,
     g0_init: Optional[Any] = None,
     om_init: Optional[Any] = None,
-    S_init: Optional[Any] = None
+    S1_init: Optional[Any] = None,
+    S2_init: Optional[Any] = None
 ) -> List[Dict[str, Any]]:
     """
     Run a parameter sweep over specified parameter combinations.
@@ -380,7 +381,8 @@ def run_seq_parameter_sweep(
                 key_seed=key_seed + idx,
                 g0_init=g0_init,
                 om_init=om_init,
-                S_init=S_init
+                S1_init=S1_init,
+                S2_init=S2_init
             )
 
             # Generate analysis plots

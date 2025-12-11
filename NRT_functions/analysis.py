@@ -6,7 +6,7 @@ import os
 from scores import GridScorer
 from sweep_analysis_sequential import compute_g_at_positions
 
-def quantitative_analysis_seq(g0, S, om, parameters, counter, res=70, savepath=None):
+def quantitative_analysis_seq(g0, S1, S2, om, parameters, counter, res=70, savepath=None):
     phi_small = np.linspace(-np.pi, np.pi, res)/2
     phi_small = np.meshgrid(phi_small, phi_small)
     phi_small = np.hstack([np.ndarray.flatten(phi_small[0])[:,None], 
@@ -17,8 +17,8 @@ def quantitative_analysis_seq(g0, S, om, parameters, counter, res=70, savepath=N
     phi_large = np.hstack([np.ndarray.flatten(phi_large[0])[:,None], 
                                  np.ndarray.flatten(phi_large[1])[:,None]])
     
-    V_small = np.array(compute_g_at_positions(g0, om, S, phi_small))
-    V_large = np.array(compute_g_at_positions(g0, om, S, phi_large))
+    V_small = np.array(compute_g_at_positions(g0, om, S1, S2, phi_small))
+    V_large = np.array(compute_g_at_positions(g0, om, S1, S2, phi_large))
 
     maps_large = [V_large[i,:] for i in range(V_large.shape[0])]
     maps_small = [V_small[i,:] for i in range(V_small.shape[0])]
