@@ -9,7 +9,7 @@ import os
 from NRT_functions import helper_functions
 from NRT_functions import losses
 
-def run_plane_sequential_optimization(parameters, savepath = None, key_seed = 0, g0_init = None, om_init = None, S_init = None):
+def run_plane_sequential_optimization(parameters, dataloader, savepath = None, key_seed = 0, g0_init = None, om_init = None, S_init = None):
     """
     Run plane optimization with given parameters.
 

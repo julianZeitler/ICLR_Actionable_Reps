@@ -110,32 +110,29 @@ def get_T_2D(om, phi, S):
 
     Args:
         om: frequencies, shape [M, 2]
-        phi: displacement vector, shape [2] or [N, 2]
+        phi: displacement vector, shape [Batch, Sequence, 2]
         S: change of basis matrix, shape [2*M+1, 2*M+1] or similar
 
     Returns:
-        T: transformation matrix, shape [D, D] if phi is [2], or [N, D, D] if phi is [N, 2]
+        T: transformation matrix, shape [Batch, Sequence, D, D]
     """
     M = om.shape[0]  # Number of frequencies
+    D = 2*M + 1
 
-    # Handle both single phi [2] and batch phi [N, 2]
-    if phi.ndim == 1:
-        phi = phi[None, :]  # Add batch dimension: [2] -> [1, 2]
-        squeeze_output = True
-    else:
-        squeeze_output = False
+    # phi shape: [Batch, Sequence, 2]
+    B, L = phi.shape[0], phi.shape[1]
 
-    N = phi.shape[0]
+    # Reshape phi to [B*L, 2] for computation
+    phi_flat = phi.reshape(B * L, 2)
 
     # Compute k · Δx for all frequencies and all phis
-    # om shape: [M, 2], phi shape: [N, 2]
-    # k_dot_phi shape: [N, M]
-    k_dot_phi = jnp.sum(om[None, :, :] * phi[:, None, :], axis=2)
+    # om shape: [M, 2], phi_flat shape: [B*L, 2]
+    # k_dot_phi shape: [B*L, M]
+    k_dot_phi = jnp.sum(om[None, :, :] * phi_flat[:, None, :], axis=2)
 
     # Build T_irrep as block-diagonal matrix
     # T_irrep has structure: constant (1) + M blocks of 2x2 rotation matrices
-    D = 2*M + 1
-    T_irrep = jnp.zeros([N, D, D])
+    T_irrep = jnp.zeros([B * L, D, D])
 
     # First element is always 1 (constant term)
     T_irrep = T_irrep.at[:, 0, 0].set(1.0)
@@ -161,13 +158,13 @@ def get_T_2D(om, phi, S):
     # Compute T = S @ T_irrep @ S^(-1) for each phi
     S_inv = jnp.linalg.inv(S)
 
-    # T shape: [N, D, D]
-    T = jnp.einsum('ij,njk,kl->nil', S, T_irrep, S_inv)
+    # T_flat shape: [B*L, D, D]
+    T_flat = jnp.einsum('ij,njk,kl->nil', S, T_irrep, S_inv)
 
-    if squeeze_output:
-        T = T[0]  # Remove batch dimension: [1, D, D] -> [D, D]
+    # Reshape to [B, L, D, D]
+    T = T_flat.reshape(B, L, D, D)
 
-    return T 
+    return T
 
 def init_irreps_AB(om, theta_A, theta_B, phi):
     cos_stack_A = jnp.cos(theta_A[None, :]*om[:, None])
