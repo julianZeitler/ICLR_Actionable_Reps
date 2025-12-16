@@ -2,6 +2,7 @@
 import os
 from datetime import datetime 
 import jax.numpy as jnp
+import jax.lax as lax
 import numpy as np
 from pathlib import Path
 from scipy.special import sph_harm as sph_harm
@@ -110,29 +111,38 @@ def get_T_2D(om, phi, S):
 
     Args:
         om: frequencies, shape [M, 2]
-        phi: displacement vector, shape [Batch, Sequence, 2]
+        phi: displacement vector, shape [Batch, 2] or [Batch, Sequence, 2]
         S: change of basis matrix, shape [2*M+1, 2*M+1] or similar
 
     Returns:
-        T: transformation matrix, shape [Batch, Sequence, D, D]
+        T: transformation matrix, shape [Batch, D, D] or [Batch, Sequence, D, D]
     """
     M = om.shape[0]  # Number of frequencies
     D = 2*M + 1
 
-    # phi shape: [Batch, Sequence, 2]
-    B, L = phi.shape[0], phi.shape[1]
+    # Handle both [Batch, 2] and [Batch, Sequence, 2] cases
+    has_sequence_dim = phi.ndim == 3
 
-    # Reshape phi to [B*L, 2] for computation
-    phi_flat = phi.reshape(B * L, 2)
+    if has_sequence_dim:
+        # phi shape: [Batch, Sequence, 2]
+        B, L = phi.shape[0], phi.shape[1]
+        # Reshape phi to [B*L, 2] for computation
+        phi_flat = phi.reshape(B * L, 2)
+        N = B * L
+    else:
+        # phi shape: [Batch, 2]
+        B = phi.shape[0]
+        phi_flat = phi
+        N = B
 
     # Compute k · Δx for all frequencies and all phis
-    # om shape: [M, 2], phi_flat shape: [B*L, 2]
-    # k_dot_phi shape: [B*L, M]
+    # om shape: [M, 2], phi_flat shape: [N, 2]
+    # k_dot_phi shape: [N, M]
     k_dot_phi = jnp.sum(om[None, :, :] * phi_flat[:, None, :], axis=2)
 
     # Build T_irrep as block-diagonal matrix
     # T_irrep has structure: constant (1) + M blocks of 2x2 rotation matrices
-    T_irrep = jnp.zeros([B * L, D, D])
+    T_irrep = jnp.zeros([N, D, D])
 
     # First element is always 1 (constant term)
     T_irrep = T_irrep.at[:, 0, 0].set(1.0)
@@ -158,11 +168,16 @@ def get_T_2D(om, phi, S):
     # Compute T = S @ T_irrep @ S^(-1) for each phi
     S_inv = jnp.linalg.inv(S)
 
-    # T_flat shape: [B*L, D, D]
+    # T_flat shape: [N, D, D]
     T_flat = jnp.einsum('ij,njk,kl->nil', S, T_irrep, S_inv)
 
-    # Reshape to [B, L, D, D]
-    T = T_flat.reshape(B, L, D, D)
+    # Reshape based on input dimensions
+    if has_sequence_dim:
+        # Reshape to [B, L, D, D]
+        T = T_flat.reshape(B, L, D, D)
+    else:
+        # Keep as [B, D, D]
+        T = T_flat
 
     return T
 
@@ -209,6 +224,39 @@ def irrep_transforms_2D(om, delta_phis):
             G_I[counter, 2*m-1:2*m+1, 2*m-1:2*m+1] = [[np.cos(delta), -np.sin(delta)], [np.sin(delta), np.cos(delta)]]
     return G_I
 
+def calc_g_slow(g0, T, norm=True):
+    B, L = T.shape[0], T.shape[1]
+    # Sequentially apply transformation
+    g = jnp.zeros((B, L, g0.shape[0]))
+    g = g.at[:,0,:].set(jnp.einsum('bij,j->bi', T[:,0,:,:], g0))
+    for step in range(1,L):
+        g = g.at[:,step,:].set(jnp.einsum('bij,bj->bi', T[:,step,:,:], g[:,step-1,:]))
+
+    if norm:
+        # Normalize g
+        norms = jnp.linalg.norm(g, axis=1, keepdims=True)
+        g = g / norms
+    
+    return g
+
+def calc_g(g0, T, norm=True):
+    B, L = T.shape[0], T.shape[1]
+    g = jnp.zeros((B, L, g0.shape[0]))
+    g = g.at[:,0,:].set(jnp.einsum('bij,j->bi', T[:,0,:,:], g0))
+
+    def scan_fn(g_prev, T_step):
+        g_next = jnp.einsum('bij,bj->bi', T_step, g_prev)
+        return g_next, g_next
+    T_transpose = jnp.moveaxis(T, 1, 0) # swap batch and sequence dims for lax.scan
+    _, g_sequence = lax.scan(scan_fn, g[:,0,:], T_transpose[1:,:,:,:])
+    g = g.at[:, 1:, :].set(jnp.moveaxis(g_sequence, 0, 1))
+
+    if norm:
+        norms = jnp.linalg.norm(g, axis=1, keepdims=True)
+        g = g / norms
+    
+    return g
+
 # Function to normalise the weights along the rows
 def normalise_weights(W):
     # Set up the normalised version of the weight matrix
@@ -247,7 +295,10 @@ def calc_chi_periodicvolume(phi, sigma_theta, f):
     return chi
 
 def calc_chi_plane(phi, sigma_theta, f):
-    dist = jnp.sum(jnp.power(phi[:,None,:] - phi[None,:,:],2), axis = 2)
+    if phi.ndim == 2:
+        dist = jnp.sum(jnp.power(phi[:,None,:] - phi[None,:,:],2), axis = 2)
+    else: # Handle separate batch and sequence dim
+        dist = jnp.sum(jnp.power(phi[:,:,None,:] - phi[:,None,:,:],2), axis = 3)
     Chi = 1 - f*jnp.exp(-dist/(2*jnp.power(sigma_theta,2)))
     return Chi
 

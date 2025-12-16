@@ -210,32 +210,28 @@ def pos_plane(W, om, phi, N_shift):
     g_neg = (g - jnp.abs(g))/2
     return -jnp.sum(g_neg)/(D*N)
 
-def pos_plane_seq(g0, om, S, phi, N_shift):
+def pos_plane_seq(g0, om, S, phi):
     # g0 = activity at origin (shape [D, 1])
     # T(phi) = S @ T_irrep(phi) @ S^(-1)
     # g(phi) = T(phi) @ g0
-    N = phi.shape[0]
+    B, L = phi.shape[0], phi.shape[1]
 
     # Apply softplus to ensure non-negativity and normalize
     g0 = jax.nn.softplus(g0)
     g0 = g0 / jnp.linalg.norm(g0)
 
     # Get transformation matrices for all phi positions
-    # T shape: [N, D, D]
-    T = helper_functions.get_T_2D(om, phi, S)
+    # T shape: [B, L, D, D]
+    shift_phi = jnp.roll(phi, 1, axis=1)
+    shift_phi = shift_phi.at[:,0,:].set(0)
+    d_phi = phi - shift_phi
+    T = helper_functions.get_T_2D(om, d_phi, S)
 
-    # Apply transformation to g0 for each position
-    g = jnp.einsum('nij,j->in', T, g0)
-
-    # Normalize g
-    norms = jnp.linalg.norm(g, axis=1, keepdims=True) / (N_shift + 1)
-    g = g / norms
-    [D, N] = g.shape
+    g = helper_functions.calc_g(g0, T) # g shape: [B, L, D]
 
     # measure positivity
     g_neg = (g - jnp.abs(g))/2
-    g0_neg = (g0 - jnp.abs(g0))/2
-    return -jnp.sum(g_neg)/(D*N)
+    return -jnp.sum(g_neg)/(B*L*g.shape[2])
 
 def sep_plane_Euc(W, om, phi):
     # Create the irrep basis
@@ -307,23 +303,15 @@ def sep_plane_KernChi_seq(g0, om, S, phi, sigma_sq, chi):
     # Get transformation matrices for all phi positions
     # T shape: [B, L, D, D]
     shift_phi = jnp.roll(phi, 1, axis=1)
-    shift_phi[:,0,:] = 0
+    shift_phi = shift_phi.at[:,0,:].set(0)
     d_phi = phi - shift_phi
     T = helper_functions.get_T_2D(om, d_phi, S)
 
-    # Sequentially apply transformation
-    g = jnp.zeros((B, L, g0.shape[0]))
-    g[:,0,:] = jnp.einsum('bij,j->bi', T[:,0,:,:], g0)
-    for step in range(1,L):
-        g[:,step,:] = jnp.einsum('bij,bj->bi', T[:,step,:,:], g[:,step-1,:])
-
-    # Normalize g
-    norms = jnp.linalg.norm(g, axis=1, keepdims=True)
-    g = g / norms
+    g = helper_functions.calc_g(g0, T) # g shape: [B, L, D]
 
     # measure separation
-    Xi = jnp.exp(-jnp.sum(jnp.power(g[:,None,:,:] - g[:,:,None,:],2)/(2*sigma_sq),axis=3)) # the guassian bump
-    return jnp.sum(jnp.multiply(Xi, chi))/jnp.power(B*L,2)
+    Xi = jnp.exp(-jnp.sum(jnp.power(g[:,None,:,:] - g[:,:,None,:],2)/(2*sigma_sq),axis=3)) # the guassian bump across L
+    return jnp.sum(jnp.einsum('bkl,blk->bk',Xi, chi))/(B*L*L) # Mean
 
 def sep_plane_KernChi_Module(W, grid_params, phi, sigma_sq, chi):
     # Create the frequencies

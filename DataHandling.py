@@ -5,19 +5,25 @@ import os
 import json
 import pickle
 from functools import lru_cache
+from concurrent.futures import ThreadPoolExecutor
 
 
 class TrajectoryDataset:
     """
-    Efficient dataset loader for pre-generated trajectory data with LRU caching.
+    Efficient dataset loader for pre-generated trajectory data with LRU caching
+    and optional automatic prefetching with multi-worker support.
     """
-    def __init__(self, dataset_path, cache_size=128):
+    def __init__(self, dataset_path, cache_size=128, num_workers=0, prefetch_batches=0):
         """
         Args:
             dataset_path: Path to the directory containing the dataset
             cache_size: Number of batch files to keep in memory (default: 128)
+            num_workers: Number of parallel workers for prefetching. 0 disables prefetching (default: 0)
+            prefetch_batches: Number of batches to prefetch ahead when accessing data (default: 0)
         """
         self.dataset_path = dataset_path
+        self.num_workers = num_workers
+        self.prefetch_batches = prefetch_batches
 
         # Load metadata
         with open(os.path.join(dataset_path, 'metadata.json'), 'r') as f:
@@ -30,6 +36,15 @@ class TrajectoryDataset:
         # Create cached load function with specified cache size
         self._load_batch = lru_cache(maxsize=cache_size)(self._load_batch_uncached)
 
+        # Initialize eager loading components
+        self._executor = None
+        self._shutdown = False
+        self._last_accessed_batch = -1
+
+        if self.num_workers > 0 and self.prefetch_batches > 0:
+            self._executor = ThreadPoolExecutor(max_workers=self.num_workers)
+            self._prefetch_futures = set()
+
     def __len__(self):
         return self.num_batches * self.batch_size
 
@@ -40,10 +55,33 @@ class TrajectoryDataset:
             batch = pickle.load(f)
         return batch
 
+    def _trigger_prefetch(self, current_batch_idx):
+        """Automatically prefetch upcoming batches based on access pattern"""
+        if self._executor is None or self.prefetch_batches == 0:
+            return
+
+        # Clean up completed futures
+        self._prefetch_futures = {f for f in self._prefetch_futures if not f.done()}
+
+        # Determine which batches to prefetch
+        prefetch_start = current_batch_idx + 1
+        prefetch_end = min(prefetch_start + self.prefetch_batches, self.num_batches)
+
+        # Submit prefetch jobs for upcoming batches
+        for batch_idx in range(prefetch_start, prefetch_end):
+            # Only prefetch if not already loading
+            future = self._executor.submit(self._load_batch, batch_idx)
+            self._prefetch_futures.add(future)
+
     def __getitem__(self, idx):
         # Determine which batch file and which sample within that batch
         batch_idx = idx // self.batch_size
         sample_idx = idx % self.batch_size
+
+        # Trigger prefetch for upcoming batches
+        if batch_idx != self._last_accessed_batch:
+            self._trigger_prefetch(batch_idx)
+            self._last_accessed_batch = batch_idx
 
         # Load the batch (from cache if available)
         batch = self._load_batch(batch_idx)
@@ -55,6 +93,11 @@ class TrajectoryDataset:
 
     def get_batch(self, batch_idx):
         """Get an entire batch file"""
+        # Trigger prefetch for upcoming batches
+        if batch_idx != self._last_accessed_batch:
+            self._trigger_prefetch(batch_idx)
+            self._last_accessed_batch = batch_idx
+
         return self._load_batch(batch_idx)
 
     def clear_cache(self):
@@ -64,6 +107,27 @@ class TrajectoryDataset:
     def cache_info(self):
         """Get cache statistics"""
         return self._load_batch.cache_info()
+
+    def shutdown(self):
+        """Shutdown the prefetch thread pool and cleanup resources"""
+        if self._executor is not None:
+            self._shutdown = True
+            self._executor.shutdown(wait=True)
+            self._executor = None
+            self._prefetch_futures = set()
+
+    def __del__(self):
+        """Cleanup when object is destroyed"""
+        self.shutdown()
+
+    def __enter__(self):
+        """Context manager entry"""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit"""
+        self.shutdown()
+        return False
 
 
 class TrajectoryGenerator(object):
@@ -189,8 +253,6 @@ class TrajectoryGenerator(object):
 
         for batch_idx in range(num_batches):
             positions = self.generate_trajectory(box_width, box_height, batch_size, sequence_length)
-            # Transpose to [sequence_length, batch_size, 2]
-            positions = positions.transpose(1, 0, 2)
 
             # Save batch to disk as pickle (JAX arrays can be pickled)
             batch_path = os.path.join(savepath, f'batch_{batch_idx:05d}.pkl')

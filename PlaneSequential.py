@@ -32,8 +32,6 @@ def run_plane_sequential_optimization(parameters, dataloader, savepath = None, k
     N_shift = parameters["N_shift"]
     Shift_std = parameters["Shift_std"]
     norm_size = parameters["norm_size"]
-    sampling_choice = parameters["sampling_choice"]
-    shift_points_sep = parameters["shift_points_sep"]
     resample_iters = parameters["resample_iters"]
 
     lambda_pos_init = parameters["lambda_pos_init"]
@@ -90,7 +88,7 @@ def run_plane_sequential_optimization(parameters, dataloader, savepath = None, k
             os.mkdir(f"data/{today}/")
         savepath = f"data/{today}/{now}/"
     if not os.path.isdir(savepath):
-        os.mkdir(savepath)
+        os.makedirs(savepath, exist_ok=True)
 
     helper_functions.save_parameters_json(parameters, "parameters", savepath)
     print("\nOPTIMISATION BEGINNING\n")
@@ -156,22 +154,12 @@ def run_plane_sequential_optimization(parameters, dataloader, savepath = None, k
 
         for step in range(T):
             if step % resample_iters == 0:
-                # Create the angles, shifts, irreps, and transforms
-                if sampling_choice == 0:
-                    phi = (np.random.sample([N_rand, 2]) - 0.5) * np.pi * 2
-                elif sampling_choice == 2:
-                    r = np.sqrt(np.random.uniform(size=[N_rand, 1]))
-                    theta = np.random.uniform(size=[N_rand, 1]) * 2 * np.pi
-                    phi = np.hstack([r * np.cos(theta), r * np.sin(theta)])
-                else:
-                    phi = np.random.normal(0, phi_std, [N_rand, 2])
+                phi = dataloader.get_batch(int(step/resample_iters))
+                phi_room = np.random.normal(0, phi_std, [N_rand, 2])
                 
                 phi_shift = np.random.normal(0, Shift_std, [N_shift, 2])
-                phi_norm = norm_size*np.reshape(phi[:, None, :] + phi_shift[None, :, :], [N_rand * N_shift, 2], order='F')
-                phi_pos = np.vstack([phi, phi_norm])
-
-                if shift_points_sep:
-                    phi = phi + phi_shift[np.random.randint(N_shift), :][None, :]
+                phi_other = norm_size*np.reshape(phi_room[:, None, :] + phi_shift[None, :, :], [N_rand * N_shift, 2], order='F')
+                phi_pos = np.expand_dims(np.concatenate([phi_room, phi_other], axis=0), 1) # add empty sequence dim
 
                 chi = calc_chi(phi, sigma_theta, f)
 
@@ -181,21 +169,21 @@ def run_plane_sequential_optimization(parameters, dataloader, savepath = None, k
             om_grad1 = 100*grad_sep_om(g0, om, S, phi, sigma_sq, chi)
             S_grad1 = 100*grad_sep_S(g0, om, S, phi, sigma_sq, chi)
 
-            # Positivity Term
-            L2_Here = np.log(loss_pos(g0, om, S, phi_pos, N_shift)) - k_p
+            # Positivity Term - handle phi and phi_pos separately because of differing sequence lengths
+            L2_Here = np.log(loss_pos(g0, om, S, phi) + loss_pos(g0, om, S, phi_pos)) - k_p
             L2 = L2*alpha_p + (1 - alpha_p)*L2_Here
             lambda_pos = lambda_pos*np.exp(L2*gamma_p)
-            g0_grad2 = grad_pos_g0(g0, om, S, phi_pos, N_shift)
-            om_grad2 = grad_pos_om(g0, om, S, phi_pos, N_shift)
-            S_grad2 = grad_pos_S(g0, om, S, phi_pos, N_shift)
+            g0_grad2 = grad_pos_g0(g0, om, S, phi) + grad_pos_g0(g0, om, S, phi_pos)
+            om_grad2 = grad_pos_om(g0, om, S, phi) + grad_pos_om(g0, om, S, phi_pos)
+            S_grad2 = grad_pos_S(g0, om, S, phi) + grad_pos_S(g0, om, S, phi_pos)
 
             # Norm Term
-            L3_Here = np.log(loss_norm(g0, om, S, phi, phi_norm)) - k_norm
+            L3_Here = np.log(loss_norm(g0, om, S, phi_room, phi_other)) - k_norm
             L3 = L3 * alpha_norm + (1 - alpha_norm) * L3_Here
             lambda_norm = lambda_norm * np.exp(L3 * gamma_norm)
-            g0_grad3 = grad_norm_g0(g0, om, S, phi, phi_norm)
-            om_grad3 = grad_norm_om(g0, om, S, phi, phi_norm)
-            S_grad3 = grad_norm_S(g0, om, S, phi, phi_norm)
+            g0_grad3 = grad_norm_g0(g0, om, S, phi_room, phi_other)
+            om_grad3 = grad_norm_om(g0, om, S, phi_room, phi_other)
+            S_grad3 = grad_norm_S(g0, om, S, phi_room, phi_other)
 
             # Update the moment averages, then bias correct them
             g0_grad = g0_grad1 + lambda_pos*g0_grad2 + lambda_norm*g0_grad3
