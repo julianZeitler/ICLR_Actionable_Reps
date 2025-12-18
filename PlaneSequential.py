@@ -170,7 +170,11 @@ def run_plane_sequential_optimization(parameters, dataloader, savepath = None, k
             S_grad1 = 100*grad_sep_S(g0, om, S, phi, sigma_sq, chi)
 
             # Positivity Term - handle phi and phi_pos separately because of differing sequence lengths
-            L2_Here = np.log(loss_pos(g0, om, S, phi) + loss_pos(g0, om, S, phi_pos)) - k_p
+            pos = loss_pos(g0, om, S, phi) + loss_pos(g0, om, S, phi_pos)
+            if pos > 0:
+                L2_Here = np.log(pos) - k_p
+            else:
+                L2_Here = -5
             L2 = L2*alpha_p + (1 - alpha_p)*L2_Here
             lambda_pos = lambda_pos*np.exp(L2*gamma_p)
             g0_grad2 = grad_pos_g0(g0, om, S, phi) + grad_pos_g0(g0, om, S, phi_pos)

@@ -235,7 +235,7 @@ def calc_g_slow(g0, T, norm=True):
     if norm:
         # Normalize g
         norms = jnp.linalg.norm(g, axis=1, keepdims=True)
-        g = g / norms
+        g = g / (norms + 1e-5)
     
     return g
 
@@ -253,7 +253,7 @@ def calc_g(g0, T, norm=True):
 
     if norm:
         norms = jnp.linalg.norm(g, axis=1, keepdims=True)
-        g = g / norms
+        g = g / (norms + 1e-5)
     
     return g
 

@@ -116,16 +116,12 @@ def generate_2d_plots(g0, om, S, parameters, savepath, counter, plot_scale):
     else:
         phi_calc = phi_plot_small
     
+    phi_calc = np.expand_dims(phi_calc, axis=1)
     neur_losses = np.zeros(parameters["D"])
     sigma_sq = parameters.get("sigma_sq", 0.04)
     sigma_theta = parameters.get("sigma_theta", 0.5)
     f = parameters.get("f", 1)
     chi = helper_functions.calc_chi_plane(phi_calc, sigma_theta, f)
-    
-    # Calculate loss for each neuron
-    for neuron in range(parameters["D"]):
-        g0_neuron = g0[neuron:neuron+1]
-        neur_losses[neuron] = losses.sep_plane_KernChi_seq(g0_neuron, om, S, phi_calc, sigma_sq, chi)
     
     # Overall loss
     overall_loss = losses.sep_plane_KernChi_seq(g0, om, S, phi_calc, sigma_sq, chi)
@@ -144,7 +140,7 @@ def generate_2d_plots(g0, om, S, parameters, savepath, counter, plot_scale):
             plt.axis('off')
             plt.imshow(np.reshape(V_plot[neuron, :], [N_plot, N_plot]), vmin=V_plot.min(), vmax=V_plot.max())
             plt.colorbar()
-            plt.title(f"{neur_losses[neuron]:.3f}")
+            # plt.title(f"{neur_losses[neuron]:.3f}")
         fig.tight_layout()
         plt.suptitle(f'Overall Loss: {overall_loss:.5f}', y=1.0)
         figures[f'neurons_plot_{plot_counter + 1}'] = fig
