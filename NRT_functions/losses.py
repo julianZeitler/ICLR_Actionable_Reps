@@ -353,30 +353,37 @@ def norm_plane(W, om, phi_room, phi_other):
     return jnp.linalg.norm(norms - 1)/(D*N_shift)
 
 def norm_plane_seq(g0, om, S, phi_room, phi_other):
-    # g0 = activity at origin (shape [D, 1])
-
-    N = phi_room.shape[0]
-    N_shift = int(phi_other.shape[0]/N)
+    B,L = phi_room.shape[0], phi_room.shape[1]
+    N_shift = int(phi_other.shape[0]/B)
 
     # Apply softplus to ensure non-negativity and normalize
     g0 = jax.nn.softplus(g0)
     g0 = g0 / jnp.linalg.norm(g0)
 
-    # Get transformation matrices for room and other positions
-    T_room = helper_functions.get_T_2D(om, phi_room, S)
-    T_other = helper_functions.get_T_2D(om, phi_other, S)
+    # Get transformation matrices for all phi positions
+    # T shape: [B, L, D, D]
+    shift_phi_room = jnp.roll(phi_room, 1, axis=1)
+    shift_phi_room = shift_phi_room.at[:,0,:].set(0)
+    d_phi_room = phi_room - shift_phi_room
+    T_room = helper_functions.get_T_2D(om, d_phi_room, S)
 
-    # Apply transformation to g0
-    g_room = jnp.einsum('nij,j->in', T_room, g0)
-    g_other = jnp.einsum('nij,j->in', T_other, g0)
+    shift_phi_other = jnp.roll(phi_other, 1, axis=1)
+    shift_phi_other = shift_phi_other.at[:,0,:].set(0)
+    d_phi_other = phi_other - shift_phi_other
+    T_other = helper_functions.get_T_2D(om, d_phi_other, S)
+
+    g_room = helper_functions.calc_g(g0, T_room, norm=False) # g shape: [B, L, D]
+    g_other = helper_functions.calc_g(g0, T_other, norm=False) # g shape: [B, L, D]
+
+    [_,_,D] = g_room.shape
 
     # Use the room to normalise the other representations
-    norms = jax.lax.stop_gradient(jnp.linalg.norm(g_room, axis=1, keepdims=True))
+    # ASSUMPTION: norm can be calculated from B*L
+    norms = jax.lax.stop_gradient(jnp.linalg.norm(g_room.reshape([B*L,D]), axis=0, keepdims=True))
     g = g_other / norms
-    [D, _] = g_room.shape
-
+    
     # Measure the resulting norms in each of the rooms and penalise deviations from 1
-    norms = jnp.sum(jnp.reshape(jnp.power(g_other, 2), [D, N_shift, N]), axis = 2)
+    norms = jnp.sum(jnp.reshape(jnp.power(g, 2), [B,N_shift,L,D]), axis = [0,2]) # Sum over all points in a "room"
     return jnp.linalg.norm(norms - 1)/(D*N_shift)
 
 # Set of losses for the sphere

@@ -13,34 +13,8 @@ from NRT_functions import losses
 from NRT_functions import helper_functions
 from NRT_functions import plotters
 from PlaneSequential import run_plane_sequential_optimization
-
-def compute_g_at_positions(g0, om, S, phi):
-    """
-    Compute g(phi) = T(phi) @ g0 where T(phi) = S @ T_irrep(phi) @ S^(-1)
-    
-    Args:
-        g0: activity at origin, shape [D, 1]
-        om: frequencies, shape [M, 2]
-        S: change of basis matrix, shape [D, D]
-        phi: positions, shape [N, 2]
-    
-    Returns:
-        g: activity at positions, shape [D, N]
-    """
-    # Apply softplus and normalize (same as in loss functions)
-    g0_processed = jax.nn.softplus(g0)
-    g0_processed = g0_processed / jnp.linalg.norm(g0_processed)
-    
-    # Get transformation matrices
-    T = helper_functions.get_T_2D(om, phi, S)
-    
-    # Apply transformation
-    g = jnp.einsum('nij,j->in', T, g0_processed)
-
-    norms = jnp.linalg.norm(g, axis=1, keepdims=True)
-    g = g / norms
-    
-    return g
+from NRT_functions.analysis import quantitative_analysis_seq, compute_g_at_positions
+from DataHandling import TrajectoryDataset, TrajectoryGenerator
 
 def generate_2d_plots(g0, om, S, parameters, savepath, counter, plot_scale):
     figures = {}
@@ -86,35 +60,41 @@ def generate_2d_plots(g0, om, S, parameters, savepath, counter, plot_scale):
 
 
     # Create grid of positions
-    N_plot = 70
-    phi_plot_small = np.linspace(-np.pi, np.pi, N_plot)/2
-    phi_plot_small = np.meshgrid(phi_plot_small, phi_plot_small)
-    phi_plot_small = np.hstack([np.ndarray.flatten(phi_plot_small[0])[:,None], 
-                                 np.ndarray.flatten(phi_plot_small[1])[:,None]])
+    res = 70
+    phi_very_small = np.linspace(-np.pi, np.pi, res)/6
+    phi_very_small = np.meshgrid(phi_very_small, phi_very_small)
+    phi_very_small = np.hstack([np.ndarray.flatten(phi_very_small[0])[:,None],
+                                np.ndarray.flatten(phi_very_small[1])[:,None]])
+
+    phi_small = np.linspace(-np.pi, np.pi, res)/2
+    phi_small = np.meshgrid(phi_small, phi_small)
+    phi_small = np.hstack([np.ndarray.flatten(phi_small[0])[:,None], 
+                           np.ndarray.flatten(phi_small[1])[:,None]])
     
-    phi_plot_large = np.linspace(-np.pi, np.pi, N_plot)*parameters.get("pos_lengthscale", 2)*plot_scale
-    phi_plot_large = np.meshgrid(phi_plot_large, phi_plot_large)
-    phi_plot_large = np.hstack([np.ndarray.flatten(phi_plot_large[0])[:,None], 
-                                 np.ndarray.flatten(phi_plot_large[1])[:,None]])
+    phi_large = np.linspace(-np.pi, np.pi, res)*parameters.get("pos_lengthscale", 2)
+    phi_large = np.meshgrid(phi_large, phi_large)
+    phi_large = np.hstack([np.ndarray.flatten(phi_large[0])[:,None], 
+                           np.ndarray.flatten(phi_large[1])[:,None]])
     
-    # Compute activities using transformation
-    V_small = np.array(compute_g_at_positions(g0, om, S, phi_plot_small))
-    V_large = np.array(compute_g_at_positions(g0, om, S, phi_plot_large))
-    
+    V_very_small = np.array(compute_g_at_positions(g0, om, S, phi_very_small))
+    V_small = np.array(compute_g_at_positions(g0, om, S, phi_small))
+    V_large = np.array(compute_g_at_positions(g0, om, S, phi_large))
+        
     # Normalize by large room norms
     large_norms = np.linalg.norm(V_large, axis=0, keepdims=True)
+    V_very_small = V_very_small / large_norms
     V_small = V_small / large_norms
     V_large = V_large / large_norms
     
     # Calculate losses per neuron
     if parameters["sampling_choice"] == 1:
-        phi_calc = np.random.normal(0, 1, [N_plot*N_plot, 2])
+        phi_calc = np.random.normal(0, 1, [res*res, 2])
     elif parameters['sampling_choice'] == 0 or parameters['sampling_choice'] == 2:
-        r = np.sqrt(np.random.uniform(size=[N_plot*N_plot, 1]))
-        theta = np.random.uniform(size=[N_plot*N_plot, 1]) * 2 * np.pi
+        r = np.sqrt(np.random.uniform(size=[res*res, 1]))
+        theta = np.random.uniform(size=[res*res, 1]) * 2 * np.pi
         phi_calc = np.hstack([r * np.cos(theta), r * np.sin(theta)])
     else:
-        phi_calc = phi_plot_small
+        phi_calc = phi_small
     
     phi_calc = np.expand_dims(phi_calc, axis=1)
     neur_losses = np.zeros(parameters["D"])
@@ -126,8 +106,7 @@ def generate_2d_plots(g0, om, S, parameters, savepath, counter, plot_scale):
     # Overall loss
     overall_loss = losses.sep_plane_KernChi_seq(g0, om, S, phi_calc, sigma_sq, chi)
     
-    Vs = [V_small, V_large]
-    phi_plots = [phi_plot_small, phi_plot_large]
+    Vs = [V_very_small, V_small, V_large]
     
     # Plot neurons
     RowsD = int(np.ceil(np.sqrt(parameters["D"])))
@@ -138,13 +117,16 @@ def generate_2d_plots(g0, om, S, parameters, savepath, counter, plot_scale):
         for neuron in range(parameters["D"]):
             plt.subplot(RowsD, ColumnsD, neuron + 1)
             plt.axis('off')
-            plt.imshow(np.reshape(V_plot[neuron, :], [N_plot, N_plot]), vmin=V_plot.min(), vmax=V_plot.max())
+            plt.imshow(np.reshape(V_plot[neuron, :], [res, res]), vmin=V_plot.min(), vmax=V_plot.max())
             plt.colorbar()
             # plt.title(f"{neur_losses[neuron]:.3f}")
         fig.tight_layout()
         plt.suptitle(f'Overall Loss: {overall_loss:.5f}', y=1.0)
         figures[f'neurons_plot_{plot_counter + 1}'] = fig
         fig.savefig(os.path.join(savepath, f"Neurons_Plot_{counter}_{plot_counter+1}.png"))
+    
+    fig_score = quantitative_analysis_seq(g0, S, om, parameters, counter, savepath=savepath)
+    figures['grid_scores'] = fig_score
     
     return figures
 
@@ -287,39 +269,61 @@ def generate_analysis_plots(savepath: str, counter: int = 0, plot_scale: float =
 
 def run_seq_parameter_sweep(
     base_parameters: Dict[str, Any],
-    sweep_params: Dict[str, List[Any]],
+    sweep_params: Dict[str, List[Any]] | List[Dict[str, Any]],
     base_savepath: Optional[str] = None,
     key_seed: int = 0,
     generate_plots: bool = True,
     g0_init: Optional[Any] = None,
     om_init: Optional[Any] = None,
-    S_init: Optional[Any] = None
+    S_init: Optional[Any] = None,
+    same_init_across_K: bool = False,
+    use_dataset_variants: bool = False
 ) -> List[Dict[str, Any]]:
     """
     Run a parameter sweep over specified parameter combinations.
 
     Args:
         base_parameters: Base parameter dictionary (will be copied and modified for each run)
-        sweep_params: Dictionary mapping parameter names to lists of values to sweep over
-                      Example: {'lambda_pos_init': [0.05, 0.1, 0.15], 'k_p': [-8, -9, -10]}
+        sweep_params: Either:
+                      - Dictionary mapping parameter names to lists of values (outer product mode)
+                        Example: {'lambda_pos_init': [0.05, 0.1, 0.15], 'k_p': [-8, -9, -10]}
+                        This creates all combinations (3 x 3 = 9 runs)
+                      - List of dictionaries with specific parameter combinations (explicit mode)
+                        Example: [{'lambda_pos_init': 0.05, 'k_p': -8},
+                                  {'lambda_pos_init': 0.1, 'k_p': -9}]
+                        This creates only the specified combinations (2 runs)
         base_savepath: Base directory for saving results (subdirs created for each run)
         key_seed: Starting random seed (incremented for each run)
         generate_plots: Whether to generate analysis plots for each run
         g0_init: Optional initial values for g0 parameter (if None, random initialization)
         om_init: Optional initial values for om parameter (if None, random initialization)
         S_init: Optional initial values for S parameter (if None, random initialization)
+        same_init_across_K: If True, use same random initialization for all K runs within each parameter combination.
+                           If False (default), each K run gets different random initialization.
+        use_dataset_variants: If True, create K different dataset variants (one per K iteration).
+                             Each variant has different random trajectories but same seq_len/batch parameters.
+                             If False (default), all K runs use the same dataset.
 
     Returns:
         List of dictionaries containing results and metadata for each run
     """
 
-    # Create all parameter combinations
-    param_names = list(sweep_params.keys())
-    param_values = list(sweep_params.values())
-    combinations = list(itertools.product(*param_values))
+    # Create all parameter combinations based on input type
+    if isinstance(sweep_params, list):
+        # Explicit mode: use specified combinations directly
+        combinations = [tuple(combo.values()) for combo in sweep_params]
+        param_names = list(sweep_params[0].keys()) if sweep_params else []
+        sweep_mode = "explicit"
+    else:
+        # Outer product mode: create all combinations
+        param_names = list(sweep_params.keys())
+        param_values = list(sweep_params.values())
+        combinations = list(itertools.product(*param_values))
+        sweep_mode = "outer_product"
 
     print(f"\n{'='*80}")
     print(f"Starting parameter sweep with {len(combinations)} combinations")
+    print(f"Sweep mode: {sweep_mode}")
     print(f"Sweeping over: {param_names}")
     print(f"{'='*80}\n")
 
@@ -334,7 +338,7 @@ def run_seq_parameter_sweep(
         print(f"\n{'-'*80}")
         print(f"Run {idx + 1}/{len(combinations)}")
         print(f"Parameters: {dict(zip(param_names, combo))}")
-        print(f"{'-'*80}\n")
+        print(f"{'-'*80}\n")    
 
         # Create parameter dict for this run
         run_parameters = base_parameters.copy()
@@ -347,6 +351,37 @@ def run_seq_parameter_sweep(
 
         # Ensure directory exists
         os.makedirs(run_savepath, exist_ok=True)
+
+        # Generate dataset(s) and create dataloader(s)
+        if use_dataset_variants:
+            # Create K different dataset variants, one for each K iteration
+            dataloaders = []
+            for variant_idx in range(run_parameters["K"]):
+                dataset = f"dataset/seq_len_{run_parameters['seq_len']}_batch_{run_parameters['batch']}_variant_{variant_idx}/"
+                if not os.path.exists(dataset):
+                    print(f"Generating dataset variant {variant_idx}...")
+                    generator = TrajectoryGenerator()
+                    generator.generate_dataset(dataset, 50000, batch_size=run_parameters["batch"], sequence_length=run_parameters["seq_len"])
+
+                dataloader_variant = TrajectoryDataset(
+                    dataset,
+                    num_workers=6,
+                    prefetch_batches=10
+                )
+                dataloaders.append(dataloader_variant)
+            dataloader = dataloaders  # Pass list of dataloaders
+        else:
+            # Use single dataset for all K iterations
+            dataset = f"dataset/seq_len_{run_parameters['seq_len']}_batch_{run_parameters['batch']}/"
+            if not os.path.exists(dataset):
+                generator = TrajectoryGenerator()
+                generator.generate_dataset(dataset, 50000, batch_size=run_parameters["batch"], sequence_length=run_parameters["seq_len"])
+
+            dataloader = TrajectoryDataset(
+                dataset,
+                num_workers=6,
+                prefetch_batches=10
+            )
 
         # Save sweep configuration
         sweep_config = {
@@ -362,11 +397,13 @@ def run_seq_parameter_sweep(
         try:
             opt_results = run_plane_sequential_optimization(
                 parameters=run_parameters,
+                dataloader=dataloader,
                 savepath=run_savepath,
                 key_seed=key_seed + idx,
                 g0_init=g0_init,
                 om_init=om_init,
-                S_init=S_init
+                S_init=S_init,
+                same_init_across_K=same_init_across_K
             )
 
             # Generate analysis plots

@@ -9,14 +9,22 @@ import os
 from NRT_functions import helper_functions
 from NRT_functions import losses
 
-def run_plane_sequential_optimization(parameters, dataloader, savepath = None, key_seed = 0, g0_init = None, om_init = None, S_init = None):
+def run_plane_sequential_optimization(parameters, dataloader, savepath = None, key_seed = 0, g0_init = None, om_init = None, S_init = None, same_init_across_K = False):
     """
     Run plane optimization with given parameters.
 
     Args:
         parameters: Dictionary containing optimization parameters (D, T, K, N_rand, etc.)
+        dataloader: Either a single TrajectoryDataset (used for all K runs) or a list of K TrajectoryDatasets
+                   (one for each K run, enabling different dataset variants per run)
         savepath: Path to save results. If None, creates timestamped directory
         key_seed: Random seed for JAX
+        g0_init: Optional initial g0 values (if None, random initialization)
+        om_init: Optional initial om values (if None, random initialization)
+        S_init: Optional initial S values (if None, random initialization)
+        same_init_across_K: If True, use the same random initialization for all K runs.
+                           If False (default), each K run gets different random initialization.
+                           Note: Data batches will still be different across runs regardless of this setting.
 
     Returns:
         Dictionary containing optimization results
@@ -53,11 +61,19 @@ def run_plane_sequential_optimization(parameters, dataloader, savepath = None, k
 
     save_iters = parameters["save_iters"]
     print_iters = parameters["print_iters"]
+    checkpoint_iters = parameters.get("checkpoint_iters", None)  # None means no checkpointing
 
     om_init_scale = parameters["om_init_scale"]
     sigma_sq = parameters["sigma_sq"]
     sigma_theta = parameters["sigma_theta"]
     f = parameters["f"]
+
+    # Convergence check parameters
+    convergence = parameters.get("convergence", False)
+    convergence_window = parameters.get("convergence_window", 50)  # Window size in save_iters units
+    convergence_patience = parameters.get("convergence_patience", 50)  # Checks without improvement
+    convergence_threshold = parameters.get("convergence_threshold", 0.05)  # Min relative improvement
+    convergence_smoothing = parameters.get("convergence_smoothing", 200)  # Smooth over N recent values
 
     loss_sep = jit(losses.sep_plane_KernChi_seq)
     # loss_sep = losses.sep_plane_KernChi_seq
@@ -77,6 +93,7 @@ def run_plane_sequential_optimization(parameters, dataloader, savepath = None, k
     grad_norm_om = jit(grad(losses.norm_plane_seq, argnums=1))
     grad_norm_S = jit(grad(losses.norm_plane_seq, argnums=2))
     key = random.key(key_seed)
+    key_init = key  # Save initial key for potential reuse across K iterations
 
     # Setup save file locations
     if savepath is None:
@@ -107,6 +124,16 @@ def run_plane_sequential_optimization(parameters, dataloader, savepath = None, k
     }
 
     for counter in range(K):
+        # Select appropriate dataloader for this K iteration
+        if isinstance(dataloader, list):
+            current_dataloader = dataloader[counter]
+        else:
+            current_dataloader = dataloader
+
+        # Reset key to initial state if using same initialization across K runs
+        if same_init_across_K and counter > 0:
+            key = key_init
+
         # Randomly initialise g0, losses, moments, and best g0 and loss
         if g0_init is None:
             key, subkey1 = random.split(key)
@@ -152,15 +179,22 @@ def run_plane_sequential_optimization(parameters, dataloader, savepath = None, k
         lambda_pos = lambda_pos_init
         save_counter = 0
 
+        # Convergence tracking
+        if convergence:
+            loss_history = {'L1': [], 'L2': [], 'L3': []}  # Track recent losses
+            no_improvement_count = 0
+            converged = False
+
         for step in range(T):
             if step % resample_iters == 0:
-                phi = dataloader.get_batch(int(step/resample_iters))
-                phi_room = np.random.normal(0, phi_std, [N_rand, 2])
+                phi = current_dataloader.get_batch(int(step/resample_iters))
+                B, L = phi.shape[0], phi.shape[1]
                 
                 phi_shift = np.random.normal(0, Shift_std, [N_shift, 2])
-                phi_other = norm_size*np.reshape(phi_room[:, None, :] + phi_shift[None, :, :], [N_rand * N_shift, 2], order='F')
-                phi_pos = np.expand_dims(np.concatenate([phi_room, phi_other], axis=0), 1) # add empty sequence dim
+                # Offset trajectories    [B,N_shift,L,2]            [B   ,N_shift,L   ,2]
+                phi_norm = np.reshape(phi[:,None   ,:,:] + phi_shift[None,:      ,None,:], [B*N_shift,L,2])
 
+                phi_pos = np.concatenate([phi, phi_norm], axis=0)
                 chi = calc_chi(phi, sigma_theta, f)
 
             # Separation Term
@@ -169,25 +203,25 @@ def run_plane_sequential_optimization(parameters, dataloader, savepath = None, k
             om_grad1 = 100*grad_sep_om(g0, om, S, phi, sigma_sq, chi)
             S_grad1 = 100*grad_sep_S(g0, om, S, phi, sigma_sq, chi)
 
-            # Positivity Term - handle phi and phi_pos separately because of differing sequence lengths
-            pos = loss_pos(g0, om, S, phi) + loss_pos(g0, om, S, phi_pos)
+            # Positivity Term
+            pos = loss_pos(g0, om, S, phi_pos)
             if pos > 0:
                 L2_Here = np.log(pos) - k_p
             else:
                 L2_Here = -5
             L2 = L2*alpha_p + (1 - alpha_p)*L2_Here
             lambda_pos = lambda_pos*np.exp(L2*gamma_p)
-            g0_grad2 = grad_pos_g0(g0, om, S, phi) + grad_pos_g0(g0, om, S, phi_pos)
-            om_grad2 = grad_pos_om(g0, om, S, phi) + grad_pos_om(g0, om, S, phi_pos)
-            S_grad2 = grad_pos_S(g0, om, S, phi) + grad_pos_S(g0, om, S, phi_pos)
+            g0_grad2 = grad_pos_g0(g0, om, S, phi_pos)
+            om_grad2 = grad_pos_om(g0, om, S, phi_pos)
+            S_grad2 = grad_pos_S(g0, om, S, phi_pos)
 
             # Norm Term
-            L3_Here = np.log(loss_norm(g0, om, S, phi_room, phi_other)) - k_norm
+            L3_Here = np.log(loss_norm(g0, om, S, phi, phi_norm)) - k_norm
             L3 = L3 * alpha_norm + (1 - alpha_norm) * L3_Here
             lambda_norm = lambda_norm * np.exp(L3 * gamma_norm)
-            g0_grad3 = grad_norm_g0(g0, om, S, phi_room, phi_other)
-            om_grad3 = grad_norm_om(g0, om, S, phi_room, phi_other)
-            S_grad3 = grad_norm_S(g0, om, S, phi_room, phi_other)
+            g0_grad3 = grad_norm_g0(g0, om, S, phi, phi_norm)
+            om_grad3 = grad_norm_om(g0, om, S, phi, phi_norm)
+            S_grad3 = grad_norm_S(g0, om, S, phi, phi_norm)
 
             # Update the moment averages, then bias correct them
             g0_grad = g0_grad1 + lambda_pos*g0_grad2 + lambda_norm*g0_grad3
@@ -222,8 +256,76 @@ def run_plane_sequential_optimization(parameters, dataloader, savepath = None, k
                 Lambdas_norm[save_counter] = lambda_norm
                 save_counter = save_counter + 1
 
+                # Convergence check
+                if convergence:
+                    loss_history['L1'].append(float(L1))
+                    loss_history['L2'].append(float(L2_Here))
+                    loss_history['L3'].append(float(L3_Here))
+
+                    # Only check after we have enough history
+                    if len(loss_history['L1']) >= convergence_window + convergence_smoothing:
+                        # Compute rolling average over entire range including current
+                        window_start = max(0, len(loss_history['L1']) - convergence_window)
+                        kernel = np.ones(convergence_smoothing) / convergence_smoothing
+
+                        L1_smoothed = np.convolve(loss_history['L1'][window_start:], kernel, mode='valid')
+                        L2_smoothed = np.convolve(loss_history['L2'][window_start:], kernel, mode='valid')
+                        L3_smoothed = np.convolve(loss_history['L3'][window_start:], kernel, mode='valid')
+
+                        # Current smoothed value is the last entry, historical min is from earlier
+                        L1_current = L1_smoothed[-1]
+                        L2_current = L2_smoothed[-1]
+                        L3_current = L3_smoothed[-1]
+
+                        L1_window_min = np.min(L1_smoothed[:-1]) if len(L1_smoothed) > 1 else L1_current
+                        L2_window_min = np.min(L2_smoothed[:-1]) if len(L2_smoothed) > 1 else L2_current
+                        L3_window_min = np.min(L3_smoothed[:-1]) if len(L3_smoothed) > 1 else L3_current
+
+                        # Check if any loss has improved by threshold
+                        L1_improved = (L1_window_min - L1_current) / (abs(L1_window_min) + 1e-8) > convergence_threshold
+                        L2_improved = (L2_window_min - L2_current) / (abs(L2_window_min) + 1e-8) > convergence_threshold
+                        L3_improved = (L3_window_min - L3_current) / (abs(L3_window_min) + 1e-8) > convergence_threshold
+
+                        if not (L1_improved or L2_improved or L3_improved):
+                            no_improvement_count += 1
+                            if no_improvement_count >= convergence_patience:
+                                converged = True
+                                print(f'\n>>> Convergence achieved at step {step}')
+                                print(f'    No improvement in L1, L2, or L3 for {convergence_patience} checks')
+                                print(f'    L1: {L1_current:.5f}, L2: {L2_current:.5f}, L3: {L3_current:.5f}')
+                        else:
+                            no_improvement_count = 0  # Reset counter if any loss improved
+
+            if converged if convergence else False:
+                break
+
             if step % print_iters == 0:
                 print(f'Iteration: {step}, Loss: {Losses[1, save_counter-1]:.5f}\t Sep: {L1:.5f}\t Pos: {L2_Here:.5f}\t {L2:.5f}\t L P: {lambda_pos:.5f}\t Norm: {L3_Here:.5f}\t {L3:.5f}\t L N: {lambda_norm:.5f}')
+
+            # Save checkpoint if checkpoint_iters is set
+            if checkpoint_iters is not None and step > 0 and step % checkpoint_iters == 0:
+                checkpoint_dir = os.path.join(savepath, f"checkpoints/k{counter}/")
+                os.makedirs(checkpoint_dir, exist_ok=True)
+
+                checkpoint_losses = Losses[:, :save_counter].copy()  # Only save up to current point
+                checkpoint_lambdas_pos = Lambdas_pos[:save_counter].copy()
+                checkpoint_lambdas_norm = Lambdas_norm[:save_counter].copy()
+
+                helper_functions.save_obj(g0, f"g0_step_{step}", checkpoint_dir)
+                helper_functions.save_obj(om, f"om_step_{step}", checkpoint_dir)
+                helper_functions.save_obj(S, f"S_step_{step}", checkpoint_dir)
+                helper_functions.save_obj(checkpoint_losses, f"L_step_{step}", checkpoint_dir)
+                helper_functions.save_obj(min_L, f"min_L_step_{step}", checkpoint_dir)
+                helper_functions.save_obj(checkpoint_lambdas_pos, f"lambda_pos_step_{step}", checkpoint_dir)
+                helper_functions.save_obj(checkpoint_lambdas_norm, f"lambda_norm_step_{step}", checkpoint_dir)
+
+                # Also save best parameters if they exist
+                if min_L[1] < np.inf:
+                    helper_functions.save_obj(g0_best, f"g0_best_step_{step}", checkpoint_dir)
+                    helper_functions.save_obj(om_best, f"om_best_step_{step}", checkpoint_dir)
+                    helper_functions.save_obj(S_best, f"S_best_step_{step}", checkpoint_dir)
+
+                print(f"  → Checkpoint saved at step {step}")
 
             # Potentially save the best results
             if Losses[1, save_counter-1] < min_L[1] and L2 <= 0 and L3 < 0:
@@ -237,7 +339,14 @@ def run_plane_sequential_optimization(parameters, dataloader, savepath = None, k
             om = om - epsilon_om * means_debiased_om / (np.sqrt(sec_moms_debiased_om + eta))
             S = S - epsilon_s*means_debiased_S/(np.sqrt(sec_moms_debiased_S + eta))
 
+        # Truncate arrays if convergence stopped training early
+        if convergence and save_counter < len(Losses[0]):
+            Losses = Losses[:, :save_counter]
+            Lambdas_pos = Lambdas_pos[:save_counter]
+            Lambdas_norm = Lambdas_norm[:save_counter]
+
         # Now save g0 and the losses
+        print(f"Saving results to {savepath}...")
         helper_functions.save_obj(g0_best, f"g0_{counter}", savepath)
         helper_functions.save_obj(g0_init_save, f"g0_init_{counter}", savepath)
         helper_functions.save_obj(Losses, f"L_{counter}", savepath)
@@ -252,6 +361,7 @@ def run_plane_sequential_optimization(parameters, dataloader, savepath = None, k
         helper_functions.save_obj(S, f"S_final_{counter}", savepath)
         helper_functions.save_obj(Lambdas_pos, f"lambda_pos_{counter}", savepath)
         helper_functions.save_obj(Lambdas_norm, f"lambda_norm_{counter}", savepath)
+        print(f"Saved 14 pickle files for iteration {counter}")
 
         results["g0_best_list"].append(g0_best)
         results["om_best_list"].append(om_best)
@@ -307,6 +417,7 @@ if __name__ == "__main__":
     # Printing and saving
     save_iters = 5               # How often to save results
     print_iters = 250            # How often to print results
+    checkpoint_iters = None      # Set to int (e.g., 10000) to save checkpoints every N iterations, None to disable
 
     sigma_sq = 0.04
     sigma_theta = 0.5
@@ -314,15 +425,26 @@ if __name__ == "__main__":
 
     om_init_scale = 2
 
+    # Convergence check parameters
+    convergence = False            # Set to True to enable convergence checking
+    convergence_window = 50        # Look back window size (in save_iters units)
+    convergence_patience = 10      # Number of checks without improvement before stopping
+    convergence_threshold = 0.001  # Minimum relative improvement required (0.1%)
+    convergence_smoothing = 5      # Smooth current losses over this many recent values
+
     parameters = {
         "D": D, "T": T, "K": K, "N_rand": N_rand, "phi_std": phi_std,
         "N_shift": N_shift, "resample_iters": resample_iters, "save_iters": save_iters, "print_iters": print_iters,
+        "checkpoint_iters": checkpoint_iters,
         "lambda_pos_init": lambda_pos_init, "k_p": k_p, "alpha_p": alpha_p, "gamma_p": gamma_p,
         "lambda_norm_init": lambda_norm_init, "k_norm": k_norm, "alpha_norm": alpha_norm,
         "gamma_norm": gamma_norm, "beta1": beta1, "beta2": beta2, "eta": eta,
         "epsilon_g0": epsilon_g0, "epsilon_om": epsilon_om, "epsilon_s": epsilon_s, "dim": 2,
         "sampling_choice": sampling_choice, "norm_size": norm_size, "om_init_scale": om_init_scale,
-        "Shift_std": Shift_std, "shift_points_sep": shift_points_sep, "sigma_sq": sigma_sq, "sigma_theta": sigma_theta, "f": f
+        "Shift_std": Shift_std, "shift_points_sep": shift_points_sep, "sigma_sq": sigma_sq, "sigma_theta": sigma_theta, "f": f,
+        "convergence": convergence, "convergence_window": convergence_window,
+        "convergence_patience": convergence_patience, "convergence_threshold": convergence_threshold,
+        "convergence_smoothing": convergence_smoothing
     }
 
     results = run_plane_sequential_optimization(

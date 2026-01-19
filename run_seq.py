@@ -6,10 +6,10 @@ import pickle
 import os
 
 base_params = {
-    "D": 65, "T": 30000, "K": 1, "N_rand": 150, "phi_std": 1,
+    "D": 65, "T": 10000, "K": 1, "N_rand": 150, "phi_std": 1,
     "N_shift": 15, "resample_iters": 5, "save_iters": 5, "print_iters": 1,
     "lambda_pos_init": 0.1, "k_p": -9, "alpha_p": 0.9, "gamma_p": 0.001,
-    "lambda_norm_init": 0.005, "k_norm": -3, "alpha_norm": 0.9,
+    "lambda_norm_init": 0.005, "k_norm": 0, "alpha_norm": 0.9,
     "gamma_norm": 0.001, "beta1": 0.9, "beta2": 0.9, "eta": 1e-8,
     "epsilon_g0": 0.1, "epsilon_om": 0.1, "epsilon_s": 0.1, "dim": 2,
     "sampling_choice": 1, "norm_size": 1,
@@ -38,7 +38,7 @@ else:
     S_init = None
     print("Using random initialization")
 
-dataloader = TrajectoryDataset('dataset/seq_len_25_batch_5/', num_workers=6, prefetch_batches=10)
+dataloader = TrajectoryDataset('dataset/seq_len_150_batch_1/', num_workers=6, prefetch_batches=10)
 
 print("Running optimization...")
 results = run_plane_sequential_optimization(
