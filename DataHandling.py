@@ -528,8 +528,7 @@ class TrajectoryGenerator(object):
         return created_datasets
 
     def visualize_trajectories(self, positions, box_width=2, box_height=2,
-                               num_trajectories=None, show_arrows=True,
-                               show_start=True, show_end=True,
+                               num_trajectories=None, show_start=True, show_end=True,
                                title=None, figsize=(10, 10), save_path=None):
         '''
         Visualize trajectory data.
@@ -539,7 +538,6 @@ class TrajectoryGenerator(object):
             box_width: Width of environment box (for drawing boundaries)
             box_height: Height of environment box (for drawing boundaries)
             num_trajectories: Number of trajectories to plot (None = all, or specify max)
-            show_arrows: Whether to show direction arrows
             show_start: Whether to mark starting points
             show_end: Whether to mark ending points
             title: Plot title
@@ -578,21 +576,10 @@ class TrajectoryGenerator(object):
                 ax.plot(traj[-1, 0], traj[-1, 1], 's', color=colors[i], markersize=8,
                        markeredgecolor='black', markeredgewidth=1.5, label='End' if i == 0 else '')
 
-            # Add direction arrows
-            if show_arrows and sequence_length > 1:
-                # Show arrows at regular intervals
-                arrow_interval = max(1, sequence_length // 5)
-                for j in range(0, sequence_length - 1, arrow_interval):
-                    dx = traj[j + 1, 0] - traj[j, 0]
-                    dy = traj[j + 1, 1] - traj[j, 1]
-                    ax.arrow(traj[j, 0], traj[j, 1], dx * 0.5, dy * 0.5,
-                            head_width=0.1, head_length=0.1, fc=colors[i], ec=colors[i],
-                            alpha=0.4, linewidth=0.5)
 
         # Draw box boundaries
         rect = Rectangle((-box_width / 2, -box_height / 2), box_width, box_height,
-                        linewidth=2, edgecolor='red', facecolor='none', linestyle='--',
-                        label='Environment boundary')
+                        linewidth=2, edgecolor='dimgrey', facecolor='none')
         ax.add_patch(rect)
 
         # Set equal aspect ratio and labels

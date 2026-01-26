@@ -611,6 +611,214 @@ def generate_sweep_score_distributions(sweep_path: str, savepath: Optional[str] 
     return figures
 
 
+def generate_sweep_validation_loss_distributions(
+    sweep_path: str,
+    savepath: Optional[str] = None,
+    use_final: bool = True,
+    loss_component: int = 0
+) -> Dict[str, Any]:
+    """
+    Generate distribution plots comparing validation losses across environments.
+
+    Creates boxplots comparing random vs snake environments side by side,
+    with separate figures for different environment sizes.
+
+    Args:
+        sweep_path: Path to the sweep directory containing run subdirectories
+        savepath: Path to save figures. If None, saves to sweep_path.
+        use_final: If True, use final step losses. If False, use best (minimum) losses.
+        loss_component: Which loss component to plot (0=total, 1=separation, 2=positivity, 3=norm)
+
+    Returns:
+        Dictionary mapping plot names to figure objects
+    """
+    if savepath is None:
+        savepath = sweep_path
+
+    figures = {}
+    loss_names = ["Total", "Separation", "Positivity", "Norm"]
+    loss_name = loss_names[loss_component]
+
+    run_dirs = sorted([
+        d for d in os.listdir(sweep_path)
+        if d.startswith('run') and os.path.isdir(os.path.join(sweep_path, d))
+    ])
+
+    if not run_dirs:
+        print(f"No run directories found in {sweep_path}")
+        return figures
+
+    # Get dataset keys from first run's validation_losses.json
+    try:
+        with open(os.path.join(sweep_path, run_dirs[0], "validation_losses.json")) as f:
+            val_losses = json.load(f)
+            first_k = list(val_losses['per_k'].keys())[0]
+            dataset_keys = list(val_losses['per_k'][first_k]['per_dataset'].keys())
+    except FileNotFoundError:
+        print(f"No validation_losses.json found in {os.path.join(sweep_path, run_dirs[0])}")
+        return figures
+
+    # Parse dataset keys to extract environment types and sizes
+    # Expected format: "random_box2x2", "snake_grid10_box5x5", etc.
+    sizes = set()
+    env_types = set()
+    for key in dataset_keys:
+        if "box" in key:
+            # Extract size (e.g., "2x2" from "random_box2x2")
+            size = key.split("box")[-1]
+            sizes.add(size)
+            # Extract environment type (e.g., "random" or "snake_grid10")
+            env_type = key.split("_box")[0]
+            env_types.add(env_type)
+
+    sizes = sorted(sizes)
+    env_types = sorted(env_types)
+
+    # Collect validation losses for each dataset across all runs
+    # Structure: {dataset_key: [[losses for k=0, k=1, ...] for each run]}
+    all_losses = {key: [] for key in dataset_keys}
+
+    seq_lens = []
+    for run_dir in run_dirs:
+        run_path = os.path.join(sweep_path, run_dir)
+
+        # Load parameters
+        with open(os.path.join(run_path, 'parameters.json'), 'r') as f:
+            run_params = json.load(f)
+        seq_lens.append(run_params.get("seq_len", 0))
+
+        # Load validation losses
+        val_losses_path = os.path.join(run_path, 'validation_losses.json')
+        if not os.path.exists(val_losses_path):
+            # Append NaN for missing data
+            for key in dataset_keys:
+                all_losses[key].append([np.nan] * run_params["K"])
+            continue
+
+        with open(val_losses_path, 'r') as f:
+            val_losses = json.load(f)
+
+        run_losses = {key: [] for key in dataset_keys}
+        for k in range(run_params["K"]):
+            k_str = str(k)
+            if k_str not in val_losses['per_k']:
+                for key in dataset_keys:
+                    run_losses[key].append(np.nan)
+                continue
+
+            for key in dataset_keys:
+                if key not in val_losses['per_k'][k_str]['per_dataset']:
+                    run_losses[key].append(np.nan)
+                    continue
+
+                losses = np.array(val_losses['per_k'][k_str]['per_dataset'][key])
+                # losses has shape [4, n_steps]
+                if use_final:
+                    loss_val = losses[loss_component, -1]
+                else:
+                    loss_val = np.min(losses[loss_component])
+                run_losses[key].append(loss_val)
+
+        for key in dataset_keys:
+            all_losses[key].append(run_losses[key])
+
+    # Convert to arrays: shape [n_runs, K]
+    for key in all_losses:
+        all_losses[key] = np.array(all_losses[key])
+
+    # Create figures for each size, comparing environment types
+    unique_seq_lens = sorted(set(seq_lens))
+
+    for size in sizes:
+        # Find dataset keys for this size
+        size_keys = [k for k in dataset_keys if f"box{size}" in k]
+        if len(size_keys) < 1:
+            continue
+
+        # Separate by environment type
+        env_data = {}
+        for key in size_keys:
+            env_type = key.split("_box")[0]
+            env_data[env_type] = all_losses[key]
+
+        loss_type_str = "Final" if use_final else "Best"
+
+        # Organize data by seq_len for each environment type
+        # Structure: {env_type: {seq_len: [losses]}}
+        env_seq_losses = {}
+        for env_type, losses in env_data.items():
+            env_seq_losses[env_type] = {sl: [] for sl in unique_seq_lens}
+            for idx, sl in enumerate(seq_lens):
+                # losses[idx] has shape [K], flatten and filter NaN
+                run_losses = losses[idx].flatten().tolist()
+                env_seq_losses[env_type][sl].extend([l for l in run_losses if not np.isnan(l)])
+
+        # Create boxplot figure with subplots for each env type
+        n_envs = len(env_seq_losses)
+        fig_box, axes_box = plt.subplots(1, n_envs, figsize=(6 * n_envs, 5), squeeze=False)
+        axes_box = axes_box.flatten()
+
+        fig_box.suptitle(f"{loss_type_str} Validation {loss_name} Loss Distribution\nEnvironment size: {size}")
+
+        for ax, (env_type, seq_losses) in zip(axes_box, sorted(env_seq_losses.items())):
+            # Prepare data for boxplot: list of loss arrays, one per seq_len
+            box_data = [seq_losses[sl] for sl in unique_seq_lens]
+
+            # Only plot if we have data
+            if any(len(d) > 0 for d in box_data):
+                ax.boxplot(box_data, positions=unique_seq_lens, widths=[s * 0.4 for s in unique_seq_lens])
+                ax.set_xscale('log')
+                ax.set_xlabel("Sequence length")
+                ax.set_ylabel(f"{loss_name} Loss")
+
+            # Format environment type for display
+            display_name = env_type.replace("_", " ").title()
+            ax.set_title(display_name)
+
+        fig_box.tight_layout()
+        fig_box.savefig(os.path.join(savepath, f"val_loss_dist_boxplot_{size}_{loss_name.lower()}.png"))
+        figures[f'boxplot_{size}_{loss_name.lower()}'] = fig_box
+
+        # Create IQR plot over seq_len
+        if len(unique_seq_lens) > 1:
+            fig_iqr, axes_iqr = plt.subplots(1, n_envs, figsize=(6 * n_envs, 5), squeeze=False)
+            axes_iqr = axes_iqr.flatten()
+
+            fig_iqr.suptitle(f"{loss_type_str} Validation {loss_name} Loss vs Sequence Length\nEnvironment size: {size}")
+
+            for ax, (env_type, seq_losses) in zip(axes_iqr, sorted(env_seq_losses.items())):
+                medians = []
+                q1s = []
+                q3s = []
+                valid_seq_lens = []
+
+                for sl in unique_seq_lens:
+                    sl_losses = seq_losses[sl]
+                    if sl_losses:
+                        medians.append(np.median(sl_losses))
+                        q1s.append(np.quantile(sl_losses, 0.25))
+                        q3s.append(np.quantile(sl_losses, 0.75))
+                        valid_seq_lens.append(sl)
+
+                if valid_seq_lens:
+                    ax.fill_between(valid_seq_lens, q1s, q3s, alpha=0.5, linewidth=0, label="IQR (Q1-Q3)")
+                    ax.plot(valid_seq_lens, medians, linewidth=2, marker='o', label="Median")
+                    ax.set_xscale('log')
+                    ax.set_xlabel("Sequence Length")
+                    ax.set_ylabel(f"{loss_name} Loss")
+                    ax.legend()
+
+                display_name = env_type.replace("_", " ").title()
+                ax.set_title(display_name)
+
+            fig_iqr.tight_layout()
+            fig_iqr.savefig(os.path.join(savepath, f"val_loss_iqr_{size}_{loss_name.lower()}.png"))
+            figures[f'iqr_{size}_{loss_name.lower()}'] = fig_iqr
+
+    print(f"Validation loss distribution plots saved to {savepath}")
+    return figures
+
+
 def run_seq_parameter_sweep(
     base_parameters: Dict[str, Any],
     sweep_params: Dict[str, List[Any]] | List[Dict[str, Any]],

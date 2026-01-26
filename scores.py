@@ -98,7 +98,7 @@ class GridScorer(object):
     seq2 = seq1
 
     def filter2(b, x):
-      stencil = np.rot90(b, 2)
+      stencil = np.rot90(b, 2) # transform convolution into correlation
       return scipy.signal.convolve2d(x, stencil, mode='full')
 
     seq1 = np.nan_to_num(seq1)
