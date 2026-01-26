@@ -59,7 +59,7 @@ def save_parameters_json(params, name, savepath):
             return obj
 
     serializable_params = convert_to_serializable(params)
-    with open(savepath + name + '.json', 'w') as f:
+    with open(os.path.join(savepath, name) + '.json', 'w') as f:
         json.dump(serializable_params, f, indent=2)
 
 def load_parameters_json(name, filepath):

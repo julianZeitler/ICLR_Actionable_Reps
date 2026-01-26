@@ -423,14 +423,14 @@ class TrajectoryGenerator(object):
     def generate_validation_dataset(self, savepath, mode='raster',
                                     box_sizes=None, grid_resolution=10,
                                     num_turns=5, points_per_turn=20,
-                                    num_batches=10, batch_size=100):
+                                    num_batches=10, batch_size=10, sequence_length=100):
         '''
         Generate validation datasets with interpretable trajectory patterns.
         Saves in TrajectoryDataset format for easy loading.
 
         Args:
             savepath: Directory to save the validation dataset
-            mode: Type of trajectory pattern ('raster', 'snake', or 'spiral')
+            mode: Type of trajectory pattern ('random', 'raster', 'snake', or 'spiral')
             box_sizes: List of (width, height) tuples for environment sizes
                       If None, creates datasets for single default size (2, 2)
             grid_resolution: Grid resolution for raster/snake modes
@@ -438,6 +438,7 @@ class TrajectoryGenerator(object):
             points_per_turn: Points per turn (for spiral mode)
             num_batches: Number of batches to generate
             batch_size: Number of samples per batch
+            sequence_length: length of sequence in random mode
 
         Returns:
             List of dataset paths created
@@ -449,7 +450,10 @@ class TrajectoryGenerator(object):
 
         for box_width, box_height in box_sizes:
             # Create subdirectory for this configuration
-            if mode == 'raster':
+            if mode == 'random':
+                config_name = f"random_box{box_width}x{box_height}"
+                sequence_length = sequence_length
+            elif mode == 'raster':
                 config_name = f"raster_grid{grid_resolution}_box{box_width}x{box_height}"
                 sequence_length = 1
             elif mode == 'snake':
@@ -469,6 +473,10 @@ class TrajectoryGenerator(object):
 
             # Generate and save batches
             for batch_idx in range(num_batches):
+                if mode == 'random':
+                    positions = self.generate_trajectory(
+                        box_width, box_height, batch_size, sequence_length
+                    )
                 if mode == 'raster':
                     positions = self.generate_raster_trajectories(
                         box_width, box_height, grid_resolution, batch_size
