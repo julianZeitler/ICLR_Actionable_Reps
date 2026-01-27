@@ -5,20 +5,20 @@ import json
 import os
 from datetime import datetime
 import jax.numpy as jnp
-import jax
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Any
 import itertools
 
-from NRT_functions import losses
-from NRT_functions import helper_functions
-from NRT_functions import plotters
-from PlaneSequential import run_plane_sequential_optimization
-from NRT_functions.analysis import quantitative_analysis_seq, compute_g_at_positions
-from DataHandling import TrajectoryDataset, TrajectoryGenerator
+from nrt import losses
+from nrt import helpers
+from sequential.plane import run_plane_sequential_optimization
+from nrt.analysis import quantitative_analysis_seq
+from nrt.data import TrajectoryDataset, TrajectoryGenerator
+from nrt.plotting import loss_plots, neuron_plotter_2d
 
-def generate_2d_plots(g0, om, S, parameters, savepath, counter):
+def generate_2d_plots(g0, om, S, savepath, counter):
     figures = {}
 
+    ### Frequencies
     fig_freq, ax = plt.subplots(figsize=(8, 8))
     ax.scatter(om[:, 0], om[:, 1], s=100, alpha=0.6)
     ax.set_xlabel('$\omega_x$', fontsize=12)
@@ -33,7 +33,7 @@ def generate_2d_plots(g0, om, S, parameters, savepath, counter):
     figures['freq_plot'] = fig_freq
     fig_freq.savefig(os.path.join(savepath, f"freq_plot_{counter}.png"))
 
-
+    ### S analysis
     fig_S, axes = plt.subplots(1, 3, figsize=(12, 3))
 
     im1 = axes[0].imshow(S, cmap='RdBu_r', aspect='equal')
@@ -58,335 +58,32 @@ def generate_2d_plots(g0, om, S, parameters, savepath, counter):
     figures['S'] = fig_S
     fig_S.savefig(os.path.join(savepath, f"S_analysis_{counter}.png"))
 
-
-    # Create grid of positions
+    ### Grid Scores
     res = 70
-    phi_small = np.linspace(-np.pi, np.pi, res)/6
-    phi_small = np.meshgrid(phi_small, phi_small)
-    phi_small = np.hstack([np.ndarray.flatten(phi_small[0])[:,None],
-                                np.ndarray.flatten(phi_small[1])[:,None]])
+    widths = (1, 2, 4)
+    V_small, V_medium, V_large = helpers.get_ratemaps_seq(g0, om, S, res, widths)
+    Vs = [V_small, V_medium, V_large]
 
-    phi_medium = np.linspace(-np.pi, np.pi, res)/2
-    phi_medium = np.meshgrid(phi_medium, phi_medium)
-    phi_medium = np.hstack([np.ndarray.flatten(phi_medium[0])[:,None], 
-                           np.ndarray.flatten(phi_medium[1])[:,None]])
-    
-    phi_large = np.linspace(-np.pi, np.pi, res)*parameters.get("pos_lengthscale", 2)
-    phi_large = np.meshgrid(phi_large, phi_large)
-    phi_large = np.hstack([np.ndarray.flatten(phi_large[0])[:,None], 
-                           np.ndarray.flatten(phi_large[1])[:,None]])
-    
-    V_small = np.array(compute_g_at_positions(g0, om, S, phi_small))
-    V_medium = np.array(compute_g_at_positions(g0, om, S, phi_medium))
-    V_large = np.array(compute_g_at_positions(g0, om, S, phi_large))
-        
+    fig_score, scores = quantitative_analysis_seq(Vs, widths, counter, res=res, savepath=savepath)
+    figures['grid_scores'] = fig_score
+
+    ### Ratemap plots        
     # Normalize by large room norms
     large_norms = np.linalg.norm(V_large, axis=0, keepdims=True)
     V_small = V_small / large_norms
     V_medium = V_medium / large_norms
     V_large = V_large / large_norms
     
-    # Calculate losses per neuron
-    if parameters["sampling_choice"] == 1:
-        phi_calc = np.random.normal(0, 1, [res*res, 2])
-    elif parameters['sampling_choice'] == 0 or parameters['sampling_choice'] == 2:
-        r = np.sqrt(np.random.uniform(size=[res*res, 1]))
-        theta = np.random.uniform(size=[res*res, 1]) * 2 * np.pi
-        phi_calc = np.hstack([r * np.cos(theta), r * np.sin(theta)])
-    else:
-        phi_calc = phi_medium
-    
-    phi_calc = np.expand_dims(phi_calc, axis=1)
-    neur_losses = np.zeros(parameters["D"])
-    sigma_sq = parameters.get("sigma_sq", 0.04)
-    sigma_theta = parameters.get("sigma_theta", 0.5)
-    f = parameters.get("f", 1)
-    chi = helper_functions.calc_chi_plane(phi_calc, sigma_theta, f)
-    
-    # Overall loss
-    overall_loss = losses.sep_plane_KernChi_seq(g0, om, S, phi_calc, sigma_sq, chi)
-    
-    Vs = [V_small, V_medium, V_large]
-    
-    # Plot neurons
-    RowsD = int(np.ceil(np.sqrt(parameters["D"])))
-    ColumnsD = int(np.ceil(parameters["D"]/RowsD))
-    
-    for (plot_counter, V_plot) in enumerate(Vs):
-        fig = plt.figure(figsize=(20, 16))
-        for neuron in range(parameters["D"]):
-            plt.subplot(RowsD, ColumnsD, neuron + 1)
-            plt.axis('off')
-            plt.imshow(np.reshape(V_plot[neuron, :], [res, res]), vmin=V_plot.min(), vmax=V_plot.max())
-            plt.colorbar()
-            # plt.title(f"{neur_losses[neuron]:.3f}")
-        fig.tight_layout()
-        plt.suptitle(f'Overall Loss: {overall_loss:.5f}', y=1.0)
+    neuron_sm_fig = neuron_plotter_2d(V_small, res, scores["sm_60"])
+    neuron_md_fig = neuron_plotter_2d(V_medium, res, scores["md_60"])
+    neuron_lg_fig = neuron_plotter_2d(V_large, res, scores["lg_60"])
+    neuron_figs = [neuron_sm_fig, neuron_md_fig, neuron_lg_fig]
+
+    for plot_counter, fig in enumerate(neuron_figs):
         figures[f'neurons_plot_{plot_counter + 1}'] = fig
         fig.savefig(os.path.join(savepath, f"Neurons_Plot_{counter}_{plot_counter+1}.png"))
     
-    fig_score, _ = quantitative_analysis_seq(g0, S, om, parameters, counter, savepath=savepath)
-    figures['grid_scores'] = fig_score
-    
     return figures
-
-def generate_loss_plots(L, min_L, lambda_pos=None, lambda_norm=None, val_L=None):
-    """Generate loss evolution plots.
-
-    Args:
-        L: Loss array of shape [4, n_iters] containing [total, separation, positivity, norm]
-        min_L: Minimum loss information
-        lambda_pos: Optional array of lambda_pos values over iterations
-        lambda_norm: Optional array of lambda_norm values over iterations
-        val_L: Optional validation loss array of shape [4, n_val_iters], can be more sparsely sampled
-    """
-    titles = ['Loss', 'Separation', 'Positivity', 'Norm']
-    fig = plt.figure(figsize=(20, 8))
-
-    # Calculate x-axis scaling for validation losses if provided
-    if val_L is not None:
-        n_train = L.shape[1]
-        n_val = val_L.shape[1]
-        # Scale validation x-coordinates to align with training iterations
-        val_x = np.linspace(0, n_train - 1, n_val)
-
-    for counter in range(4):
-        ax1 = plt.subplot(1, 4, counter + 1)
-        color1 = 'tab:blue'
-        ax1.plot(L[counter, :], color=color1, label='Train')
-
-        # Plot validation loss if provided
-        if val_L is not None:
-            ax1.plot(val_x, val_L[counter, :], color='tab:green', linestyle='--',
-                    alpha=0.8, label='Validation')
-
-        ax1.set_xlabel('Iteration (x save_iters)')
-        ax1.set_ylabel(titles[counter], color=color1)
-        ax1.tick_params(axis='y', labelcolor=color1)
-        ax1.set_title(titles[counter])
-
-        # Add legend if validation losses are shown
-        if val_L is not None and counter == 0:
-            ax1.legend(loc='upper right')
-
-        # Add second y-axis for lambda values on Positivity (counter=2) and Norm (counter=3)
-        if counter == 2 and lambda_pos is not None:
-            ax2 = ax1.twinx()
-            color2 = 'tab:orange'
-            ax2.plot(lambda_pos, color=color2, alpha=0.7, linestyle='--')
-            ax2.set_ylabel('lambda_pos', color=color2)
-            ax2.tick_params(axis='y', labelcolor=color2)
-            # Ensure lambda plot is visually above by setting higher zorder
-            ax2.set_zorder(ax1.get_zorder() + 1)
-            ax1.set_frame_on(False)
-
-        elif counter == 3 and lambda_norm is not None:
-            ax2 = ax1.twinx()
-            color2 = 'tab:red'
-            ax2.plot(lambda_norm, color=color2, alpha=0.7, linestyle='--')
-            ax2.set_ylabel('lambda_norm', color=color2)
-            ax2.tick_params(axis='y', labelcolor=color2)
-            # Ensure lambda plot is visually above by setting higher zorder
-            ax2.set_zorder(ax1.get_zorder() + 1)
-            ax1.set_frame_on(False)
-
-    plt.suptitle(f'Min Loss: {min_L[1]:.3f}')
-    plt.tight_layout()
-
-    return fig
-
-def compute_validation_losses(
-    run_path: str,
-    validation_path: str = "dataset/validation",
-    use_best_checkpoints: bool = False
-) -> Dict[str, Any]:
-    """
-    Compute validation losses for checkpoints saved during training.
-
-    Args:
-        run_path: Path to the run directory containing checkpoints/ and parameters.json
-        validation_path: Path to directory containing validation datasets
-        use_best_checkpoints: If True, use g0_best_step_*.pkl etc., otherwise use g0_step_*.pkl
-
-    Returns:
-        Dictionary with structure:
-        {
-            'steps': [200, 400, ...],
-            'per_k': {
-                0: {
-                    'per_dataset': {'dataset_name': np.array([4, n_steps]), ...},
-                    'mean_across_datasets': np.array([4, n_steps]),
-                    'std_across_datasets': np.array([4, n_steps]),
-                },
-                ...
-            },
-            'mean_across_k': {
-                'per_dataset': {'dataset_name': {'mean': ..., 'std': ...}, ...},
-                'mean_across_datasets': np.array([4, n_steps]),
-                'std_across_datasets': np.array([4, n_steps]),
-            },
-            'dataset_metadata': {'dataset_name': {...}, ...},
-            'summary': {
-                'final_mean_loss': float,
-                'best_step': int,
-                'best_mean_loss': float
-            }
-        }
-    """
-    # Load parameters
-    with open(os.path.join(run_path, 'parameters.json'), 'r') as f:
-        parameters = json.load(f)
-
-    sigma_sq = parameters.get("sigma_sq", 0.04)
-    sigma_theta = parameters.get("sigma_theta", 0.5)
-    f_param = parameters.get("f", 1)
-    N_shift = parameters.get("N_shift", 15)
-    Shift_std = parameters.get("Shift_std", 3)
-
-    # Discover k directories
-    checkpoints_path = os.path.join(run_path, "checkpoints")
-    k_dirs = sorted([d for d in os.listdir(checkpoints_path) if d.startswith('k')])
-    k_indices = [int(d[1:]) for d in k_dirs]
-
-    # Discover checkpoint steps from first k directory
-    first_k_path = os.path.join(checkpoints_path, k_dirs[0])
-    prefix = "g0_best_step_" if use_best_checkpoints else "g0_step_"
-    step_files = [f for f in os.listdir(first_k_path) if f.startswith(prefix) and f.endswith('.pkl')]
-    steps = sorted([int(f.replace(prefix, '').replace('.pkl', '')) for f in step_files])
-
-    # Discover validation datasets
-    val_datasets = sorted([d for d in os.listdir(validation_path)
-                          if os.path.isdir(os.path.join(validation_path, d))])
-
-    # Load validation dataset metadata
-    dataset_metadata = {}
-    for ds_name in val_datasets:
-        with open(os.path.join(validation_path, ds_name, 'metadata.json'), 'r') as f:
-            dataset_metadata[ds_name] = json.load(f)
-
-    # Note: We'll load validation batches on-demand to avoid memory issues
-    print(f"Found {len(val_datasets)} validation datasets")
-
-    # JIT compile loss functions for GPU acceleration
-    sep_loss_jit = jax.jit(losses.sep_plane_KernChi_seq)
-    pos_loss_jit = jax.jit(losses.pos_plane_seq)
-    norm_loss_jit = jax.jit(losses.norm_plane_seq)
-
-    # Initialize results structure
-    n_steps = len(steps)
-    per_k = {}
-
-    print(f"Computing validation losses for {len(k_indices)} k values, {n_steps} steps, {len(val_datasets)} datasets...")
-
-    for k_idx in k_indices:
-        k_path = os.path.join(checkpoints_path, f"k{k_idx}")
-        per_k[k_idx] = {'per_dataset': {}}
-
-        for ds_name in val_datasets:
-            per_k[k_idx]['per_dataset'][ds_name] = np.zeros((4, n_steps))
-
-        for step_idx, step in enumerate(steps):
-            print(f"    Step {step} ({step_idx + 1}/{n_steps})...", end=" ", flush=True)
-
-            # Load checkpoint
-            prefix = "best_" if use_best_checkpoints else ""
-            with open(os.path.join(k_path, f'g0_{prefix}step_{step}.pkl'), 'rb') as f:
-                g0 = pickle.load(f)
-            with open(os.path.join(k_path, f'om_{prefix}step_{step}.pkl'), 'rb') as f:
-                om = pickle.load(f)
-            with open(os.path.join(k_path, f'S_{prefix}step_{step}.pkl'), 'rb') as f:
-                S = pickle.load(f)
-
-            # Convert to JAX arrays for GPU computation
-            g0 = jnp.array(g0)
-            om = jnp.array(om)
-            S = jnp.array(S)
-
-            # Compute loss for each validation dataset (process batch-by-batch)
-            for ds_name in val_datasets:
-                ds_path = os.path.join(validation_path, ds_name)
-                metadata = dataset_metadata[ds_name]
-                num_batches = metadata['num_batches']
-
-                # Accumulate losses over batches
-                sep_losses, pos_losses, norm_losses = [], [], []
-
-                for batch_idx in range(num_batches):
-                    with open(os.path.join(ds_path, f'batch_{batch_idx:05d}.pkl'), 'rb') as f_batch:
-                        phi = pickle.load(f_batch)  # [batch_size, seq_len, 2]
-
-                    B, L = phi.shape[0], phi.shape[1]
-
-                    # Convert to JAX arrays for GPU computation
-                    phi_jax = jnp.array(phi)
-                    chi = helper_functions.calc_chi_plane(phi_jax, sigma_theta, f_param)
-
-                    # Compute individual loss components using JIT-compiled functions
-                    sep_losses.append(float(sep_loss_jit(g0, om, S, phi_jax, sigma_sq, chi)))
-                    pos_losses.append(float(pos_loss_jit(g0, om, S, phi_jax)))
-
-                    # Compute norm loss: create shifted versions of trajectories
-                    phi_shift = np.random.normal(0, Shift_std, [N_shift, 2])
-                    phi_norm = jnp.array(np.reshape(
-                        phi[:, None, :, :] + phi_shift[None, :, None, :],
-                        [B * N_shift, L, 2]
-                    ))
-                    norm_losses.append(float(norm_loss_jit(g0, om, S, phi_jax, phi_norm)))
-
-                # Average over batches
-                sep_loss = np.mean(sep_losses)
-                pos_loss = np.mean(pos_losses)
-                norm_loss = np.mean(norm_losses)
-
-                # Store: [total, separation, positivity, norm]
-                per_k[k_idx]['per_dataset'][ds_name][0, step_idx] = sep_loss   # Total = separation
-                per_k[k_idx]['per_dataset'][ds_name][1, step_idx] = sep_loss   # Separation
-                per_k[k_idx]['per_dataset'][ds_name][2, step_idx] = pos_loss   # Positivity
-                per_k[k_idx]['per_dataset'][ds_name][3, step_idx] = norm_loss  # Norm
-
-            print("done", flush=True)
-
-        # Compute mean/std across datasets for this k
-        all_losses = np.stack([per_k[k_idx]['per_dataset'][ds] for ds in val_datasets], axis=0)
-        per_k[k_idx]['mean_across_datasets'] = np.mean(all_losses, axis=0)
-        per_k[k_idx]['std_across_datasets'] = np.std(all_losses, axis=0)
-
-        print(f"  k={k_idx} done")
-
-    # Aggregate across k values
-    mean_across_k = {'per_dataset': {}}
-
-    for ds_name in val_datasets:
-        ds_losses = np.stack([per_k[k]['per_dataset'][ds_name] for k in k_indices], axis=0)
-        mean_across_k['per_dataset'][ds_name] = {
-            'mean': np.mean(ds_losses, axis=0),
-            'std': np.std(ds_losses, axis=0)
-        }
-
-    # Mean across k and datasets
-    all_k_dataset_losses = np.stack([per_k[k]['mean_across_datasets'] for k in k_indices], axis=0)
-    mean_across_k['mean_across_datasets'] = np.mean(all_k_dataset_losses, axis=0)
-    mean_across_k['std_across_datasets'] = np.std(all_k_dataset_losses, axis=0)
-
-    # Summary statistics
-    mean_total_losses = mean_across_k['mean_across_datasets'][0, :]  # Total loss across steps
-    best_step_idx = np.argmin(mean_total_losses)
-    summary = {
-        'final_mean_loss': float(mean_total_losses[-1]),
-        'best_step': steps[best_step_idx],
-        'best_mean_loss': float(mean_total_losses[best_step_idx])
-    }
-
-    print(f"Done. Best step: {summary['best_step']} with loss {summary['best_mean_loss']:.6f}")
-
-    return {
-        'steps': steps,
-        'per_k': per_k,
-        'mean_across_k': mean_across_k,
-        'dataset_metadata': dataset_metadata,
-        'summary': summary
-    }
-
 
 def generate_analysis_plots(savepath: str, counter: int = 0) -> Dict[str, plt.Figure]:
     """
@@ -469,10 +166,10 @@ def generate_analysis_plots(savepath: str, counter: int = 0) -> Dict[str, plt.Fi
     if parameters["dim"] == 1:
         pass
     elif parameters["dim"] == 2:
-        figures.update(generate_2d_plots(g0, om, S, parameters, savepath, counter))
+        figures.update(generate_2d_plots(g0, om, S, savepath, counter))
 
     # Generate loss plots (common to all dimensions)
-    fig_loss = generate_loss_plots(L, min_L, lambda_pos, lambda_norm)
+    fig_loss = loss_plots(L, min_L, lambda_pos, lambda_norm)
     figures['losses'] = fig_loss
     fig_loss.savefig(os.path.join(savepath, f"Losses_{counter}.png"))
 

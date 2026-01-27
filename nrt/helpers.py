@@ -3,11 +3,13 @@ import os
 from datetime import datetime 
 import jax.numpy as jnp
 import jax.lax as lax
+import jax
 import numpy as np
 from pathlib import Path
-from scipy.special import sph_harm as sph_harm
+from scipy.special import sph_harm_y
 import pickle
 import json
+
 
 # A function to setup a save file
 def setup_save_file(parameters):
@@ -540,7 +542,7 @@ def Create_CSHs(ell_max, angles):
     for l in range(ell_max + 1):
         for m in range(-l, l + 1):
             #            print(m, l, m+l+l_ind)
-            J_Comp[m + l + l_ind, :] = sph_harm(m, l, angles[1, :] + np.pi, angles[0, :] + np.pi / 2)
+            J_Comp[m + l + l_ind, :] = sph_harm_y(l, m, angles[0, :] + np.pi / 2, angles[1, :] + np.pi)
             # J_Comp[m + l + l_ind,:] = sph_harm(m, l, angles[1,:]+np.pi, angles[0,:])
         l_ind = l_ind + 2 * l + 1
     return J_Comp
@@ -655,3 +657,77 @@ def irrep_transforms_sphere(ell_max, rand_rotations):
     for rotation in range(rand_rotations.shape[0]):
         R[rotation, :, :] = Real_Rotation(rand_rotations[rotation, :, :], ell_max)
     return R
+
+def encode(g0, om, S, phi):
+    """Encode sequential trajectory positions into neural activations.
+
+    Computes displacements between consecutive positions, builds transformation
+    matrices via get_T_2D, and sequentially applies them with calc_g (lax.scan).
+
+    Args:
+        g0: Activity at origin, shape [D].
+        om: Frequencies, shape [M, 2].
+        S: Change of basis matrix, shape [D, D].
+        phi: Trajectory positions, shape [B, L, 2].
+
+    Returns:
+        Neural activations, shape [B, L, D].
+    """
+    g0 = jax.nn.softplus(g0)
+    g0 = g0 / jnp.linalg.norm(g0)
+
+    shift_phi = jnp.roll(phi, 1, axis=1)
+    shift_phi = shift_phi.at[:, 0, :].set(0)
+    d_phi = phi - shift_phi
+    T = get_T_2D(om, d_phi, S)
+    return calc_g(g0, T)
+
+def compute_g_at_positions_seq(g0, om, S, phi):
+    """
+    Compute g(phi) = T(phi) @ g0 where T(phi) = S @ T_irrep(phi) @ S^(-1)
+    
+    Args:
+        g0: activity at origin, shape [D, 1]
+        om: frequencies, shape [M, 2]
+        S: change of basis matrix, shape [D, D]
+        phi: positions, shape [N, 2]
+    
+    Returns:
+        g: activity at positions, shape [D, N]
+    """
+    # Apply softplus and normalize (same as in loss functions)
+    g0_processed = jax.nn.softplus(g0)
+    g0_processed = g0_processed / jnp.linalg.norm(g0_processed)
+    
+    # Get transformation matrices
+    T = get_T_2D(om, phi, S)
+    
+    # Apply transformation
+    g = jnp.einsum('nij,j->in', T, g0_processed)
+
+    norms = jnp.linalg.norm(g, axis=1, keepdims=True)
+    g = g / norms
+    
+    return g
+
+def get_ratemaps_seq(g0, om, S, res: int, widths: tuple):
+    phi_small = np.linspace(-0.5, 0.5, res)*widths[0]
+    phi_small = np.meshgrid(phi_small, phi_small)
+    phi_small = np.hstack([np.ndarray.flatten(phi_small[0])[:,None],
+                                np.ndarray.flatten(phi_small[1])[:,None]])
+
+    phi_medium = np.linspace(-0.5, 0.5, res)*widths[1]
+    phi_medium = np.meshgrid(phi_medium, phi_medium)
+    phi_medium = np.hstack([np.ndarray.flatten(phi_medium[0])[:,None], 
+                           np.ndarray.flatten(phi_medium[1])[:,None]])
+    
+    phi_large = np.linspace(-0.5, 0.5, res)*widths[2]
+    phi_large = np.meshgrid(phi_large, phi_large)
+    phi_large = np.hstack([np.ndarray.flatten(phi_large[0])[:,None], 
+                           np.ndarray.flatten(phi_large[1])[:,None]])
+    
+    V_small = np.array(compute_g_at_positions_seq(g0, om, S, phi_small))
+    V_medium = np.array(compute_g_at_positions_seq(g0, om, S, phi_medium))
+    V_large = np.array(compute_g_at_positions_seq(g0, om, S, phi_large))
+
+    return V_small, V_medium, V_large

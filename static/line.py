@@ -6,8 +6,8 @@ from datetime import datetime
 import os
 
 # And functions I've written
-from NRT_functions import helper_functions
-from NRT_functions import losses
+from nrt import helpers
+from nrt import losses
 
 ##### Set a load of parameters ######
 
@@ -132,9 +132,9 @@ elif sep_loss_choice == 1:
     grad_sep_W = jit(grad(losses.sep_line_EucChi, argnums=0))
     grad_sep_om = jit(grad(losses.sep_line_EucChi, argnums=1))
     if chi_choice == 0:
-        calc_chi = jit(helper_functions.calc_chi_line)
+        calc_chi = jit(helpers.calc_chi_line)
     elif chi_choice == 1:
-        calc_chi = jit(helper_functions.calc_chi_line_euc)
+        calc_chi = jit(helpers.calc_chi_line_euc)
 elif sep_loss_choice == 2:
     sigma_sq = 0.1
 
@@ -152,9 +152,9 @@ elif sep_loss_choice == 3:
     grad_sep_W = jit(grad(losses.sep_line_KernChi, argnums=0))
     grad_sep_om = jit(grad(losses.sep_line_KernChi, argnums=1))
     if chi_choice == 0:
-        calc_chi = jit(helper_functions.calc_chi_line)
+        calc_chi = jit(helpers.calc_chi_line)
     elif chi_choice == 1:
-        calc_chi = jit(helper_functions.calc_chi_line_euc)
+        calc_chi = jit(helpers.calc_chi_line_euc)
 
 parameters.update({"sep_loss_choice": sep_loss_choice})
 loss_pos = jit(losses.pos_line)
@@ -163,7 +163,7 @@ grad_pos_om = jit(grad(losses.pos_line, argnums=1))
 loss_norm = jit(losses.norm_line)
 grad_norm_W = jit(grad(losses.norm_line, argnums=0))
 grad_norm_om = jit(grad(losses.norm_line, argnums=1))
-init_irreps = jit(helper_functions.init_irreps_1D)
+init_irreps = jit(helpers.init_irreps_1D)
 key = random.PRNGKey(0)
 
 # Setup save file locations
@@ -180,7 +180,7 @@ savepath = f"data/{today}/{now}/"
 if not os.path.isdir(f"data/{today}/{now}"):
     os.mkdir(f"data/{today}/{now}")
 
-helper_functions.save_parameters_json(parameters, "parameters", savepath)
+helpers.save_parameters_json(parameters, "parameters", savepath)
 print("\nOPTIMISATION BEGINNING\n")
 
 for counter in range(K):
@@ -326,14 +326,14 @@ for counter in range(K):
             om = om - epsilon_om * means_debiased_om / (np.sqrt(sec_moms_debiased_om + eta))
 
     # Now save the weights and the losses
-    helper_functions.save_obj(W_best, f"W_{counter}", savepath)
-    helper_functions.save_obj(W_init, f"W_init_{counter}", savepath)
-    helper_functions.save_obj(Losses, f"L_{counter}", savepath)
-    helper_functions.save_obj(min_L, f"min_L_{counter}", savepath)
-    helper_functions.save_obj(om, f"om_{counter}", savepath)
-    helper_functions.save_obj(om_best, f"om_{counter}", savepath)
-    helper_functions.save_obj(W, f"W_final_{counter}", savepath)
-    helper_functions.save_obj(om, f"om_final_{counter}", savepath)
+    helpers.save_obj(W_best, f"W_{counter}", savepath)
+    helpers.save_obj(W_init, f"W_init_{counter}", savepath)
+    helpers.save_obj(Losses, f"L_{counter}", savepath)
+    helpers.save_obj(min_L, f"min_L_{counter}", savepath)
+    helpers.save_obj(om, f"om_{counter}", savepath)
+    helpers.save_obj(om_best, f"om_{counter}", savepath)
+    helpers.save_obj(W, f"W_final_{counter}", savepath)
+    helpers.save_obj(om, f"om_final_{counter}", savepath)
 
     # And print to say iteration done
     print(f"\nDONE ITERATION {counter}: Min_Loss = {min_L[1]:.5f}\n")

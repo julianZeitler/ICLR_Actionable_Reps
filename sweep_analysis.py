@@ -12,9 +12,9 @@ import jax.numpy as jnp
 from typing import Dict, List, Optional, Tuple, Any
 import itertools
 
-from NRT_functions import losses
-from NRT_functions import helper_functions
-from NRT_functions import plotters
+from nrt import losses
+from nrt import helpers
+from nrt import plotting
 from Plane import run_plane_optimization
 
 
@@ -86,9 +86,9 @@ def generate_analysis_plots(savepath: str, counter: int = 0, save_fig: bool = Tr
 
     # Generate dimension-specific plots
     if parameters["dim"] == 1:
-        figures.update(generate_1d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig, counter))
+        figures.update(generate_1d_plots(W, om, parameters, savepath, save_fig, counter))
     elif parameters["dim"] == 2:
-        figures.update(generate_2d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig, plot_scale, counter))
+        figures.update(generate_2d_plots(W, om, parameters, savepath, save_fig, plot_scale, counter))
 
     # Generate loss plots (common to all dimensions)
     fig_loss = generate_loss_plots(L, min_L, lambda_pos, lambda_norm)
@@ -99,12 +99,12 @@ def generate_analysis_plots(savepath: str, counter: int = 0, save_fig: bool = Tr
     return figures
 
 
-def generate_2d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig, plot_scale, counter):
+def generate_2d_plots(W, om, parameters, savepath, save_fig, plot_scale, counter):
     """Generate 2D-specific analysis plots."""
     figures = {}
 
     # Frequency plot
-    fig_freq = plotters.freq_plot(W, om, 1.1, 1, parameters)
+    fig_freq = plotting.freq_plot(W, om, 1.1, 1, parameters)
     figures['freq_plot'] = fig_freq
     if save_fig:
         fig_freq.savefig(os.path.join(savepath, f"freq_plot_{counter}.png"))
@@ -130,8 +130,8 @@ def generate_2d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig, p
         ])
 
         # Compute neural responses
-        I_large = helper_functions.init_irreps_2D(om, phi_plot_large)
-        I_small = helper_functions.init_irreps_2D(om, phi_plot_small)
+        I_large = helpers.init_irreps_2D(om, phi_plot_large)
+        I_small = helpers.init_irreps_2D(om, phi_plot_small)
         V_large = np.matmul(W, I_large)
         V_small = np.matmul(W, I_small)
 
@@ -155,7 +155,7 @@ def generate_2d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig, p
         # Calculate per-neuron losses
         neur_losses = np.zeros(N)
         if parameters["sep_loss_choice"] == 3:
-            chi = helper_functions.calc_chi_plane(phi_calc, parameters["sigma_theta"], parameters["f"])
+            chi = helpers.calc_chi_plane(phi_calc, parameters["sigma_theta"], parameters["f"])
             # Note: Calculating per-neuron losses can be expensive, skip if not needed
             # for neuron in range(N):
             #     neur_losses[neuron] = losses.sep_plane_KernChi(
@@ -191,7 +191,7 @@ def generate_2d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig, p
     return figures
 
 
-def generate_1d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig, counter):
+def generate_1d_plots(W, om, parameters, savepath, save_fig, counter):
     """Generate 1D-specific analysis plots."""
     figures = {}
 
@@ -202,8 +202,8 @@ def generate_1d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig, c
     if "epsilon_w" in parameters:
         phi_plot_large = np.linspace(-np.pi, np.pi, N_plot) * parameters["pos_lengthscale"]
         phi_plot_small = np.linspace(-np.pi, np.pi, N_plot)
-        I_large = helper_functions.init_irreps_1D(om, phi_plot_large)
-        I_small = helper_functions.init_irreps_1D(om, phi_plot_small)
+        I_large = helpers.init_irreps_1D(om, phi_plot_large)
+        I_small = helpers.init_irreps_1D(om, phi_plot_small)
         V_large = np.matmul(W, I_large)
         V_small = np.matmul(W, I_small)
 
@@ -224,7 +224,7 @@ def generate_1d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig, c
             for neuron in range(N):
                 neur_losses[neuron] = losses.sep_line_Euc(W[neuron, :][None, :], om, phi_calc)
         elif parameters["sep_loss_choice"] == 1:
-            chi = helper_functions.calc_chi_line(phi_calc, parameters["sigma_theta"], parameters["f"])
+            chi = helpers.calc_chi_line(phi_calc, parameters["sigma_theta"], parameters["f"])
             for neuron in range(N):
                 neur_losses[neuron] = losses.sep_line_EucChi(W[neuron, :][None, :], om, phi_calc, chi)
         elif parameters["sep_loss_choice"] == 2:
@@ -239,7 +239,7 @@ def generate_1d_plots(W, W_init, om, L, min_L, parameters, savepath, save_fig, c
         # Frequency plot
         om_scrunch_threshold = 0.4
         thresh_percentage = 1
-        fig_freq = plotters.freq_plot(W, om, thresh_percentage, om_scrunch_threshold, parameters)
+        fig_freq = plotting.freq_plot(W, om, thresh_percentage, om_scrunch_threshold, parameters)
         figures['freq_plot'] = fig_freq
         if save_fig:
             fig_freq.savefig(os.path.join(savepath, f"freq_plot_{counter}.png"))

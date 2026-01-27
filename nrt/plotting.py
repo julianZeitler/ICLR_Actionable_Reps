@@ -65,6 +65,22 @@ def neuron_plotter_1D(V, phi, Rows, Columns, dots):
         """
     return fig
 
+def neuron_plotter_2d(V, res, scores=None):
+    D = V.shape[0]
+    # Plot neurons
+    RowsD = int(np.ceil(np.sqrt(D)))
+    ColumnsD = int(np.ceil(D/RowsD))
+
+    fig = plt.figure(figsize=(20, 16))
+    for neuron in range(D):
+        plt.subplot(RowsD, ColumnsD, neuron + 1)
+        plt.axis('off')
+        plt.imshow(np.reshape(V[neuron, :], [res, res]), vmin=V.min(), vmax=V.max())
+        plt.colorbar()
+        if scores is not None:
+            plt.title(f'{scores[neuron]:.3f}')
+    fig.tight_layout()
+    return fig
 
 def freq_plot_1D(W_New, W_Old = 'void'):
     # First check if we're doing two or one plots
@@ -220,3 +236,68 @@ def freq_plot(W, om, thresh_percentage, om_scrunch_threshold, parameters):
     plt.title('Freqs Mirrored and Scrunched')
 
   return fig
+
+def loss_plots(L, min_L, lambda_pos=None, lambda_norm=None, val_L=None):
+    """Generate loss evolution plots.
+
+    Args:
+        L: Loss array of shape [4, n_iters] containing [total, separation, positivity, norm]
+        min_L: Minimum loss information
+        lambda_pos: Optional array of lambda_pos values over iterations
+        lambda_norm: Optional array of lambda_norm values over iterations
+        val_L: Optional validation loss array of shape [4, n_val_iters], can be more sparsely sampled
+    """
+    titles = ['Loss', 'Separation', 'Positivity', 'Norm']
+    fig = plt.figure(figsize=(20, 8))
+
+    # Calculate x-axis scaling for validation losses if provided
+    if val_L is not None:
+        n_train = L.shape[1]
+        n_val = val_L.shape[1]
+        # Scale validation x-coordinates to align with training iterations
+        val_x = np.linspace(0, n_train - 1, n_val)
+
+    for counter in range(4):
+        ax1 = plt.subplot(1, 4, counter + 1)
+        color1 = 'tab:blue'
+        ax1.plot(L[counter, :], color=color1, label='Train')
+
+        # Plot validation loss if provided
+        if val_L is not None:
+            ax1.plot(val_x, val_L[counter, :], color='tab:green', linestyle='--',
+                    alpha=0.8, label='Validation')
+
+        ax1.set_xlabel('Iteration (x save_iters)')
+        ax1.set_ylabel(titles[counter], color=color1)
+        ax1.tick_params(axis='y', labelcolor=color1)
+        ax1.set_title(titles[counter])
+
+        # Add legend if validation losses are shown
+        if val_L is not None and counter == 0:
+            ax1.legend(loc='upper right')
+
+        # Add second y-axis for lambda values on Positivity (counter=2) and Norm (counter=3)
+        if counter == 2 and lambda_pos is not None:
+            ax2 = ax1.twinx()
+            color2 = 'tab:orange'
+            ax2.plot(lambda_pos, color=color2, alpha=0.7, linestyle='--')
+            ax2.set_ylabel('lambda_pos', color=color2)
+            ax2.tick_params(axis='y', labelcolor=color2)
+            # Ensure lambda plot is visually above by setting higher zorder
+            ax2.set_zorder(ax1.get_zorder() + 1)
+            ax1.set_frame_on(False)
+
+        elif counter == 3 and lambda_norm is not None:
+            ax2 = ax1.twinx()
+            color2 = 'tab:red'
+            ax2.plot(lambda_norm, color=color2, alpha=0.7, linestyle='--')
+            ax2.set_ylabel('lambda_norm', color=color2)
+            ax2.tick_params(axis='y', labelcolor=color2)
+            # Ensure lambda plot is visually above by setting higher zorder
+            ax2.set_zorder(ax1.get_zorder() + 1)
+            ax1.set_frame_on(False)
+
+    plt.suptitle(f'Min Loss: {min_L[1]:.3f}')
+    plt.tight_layout()
+
+    return fig

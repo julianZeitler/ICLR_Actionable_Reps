@@ -6,8 +6,8 @@ from datetime import datetime
 import os
 
 # And functions I've written
-from NRT_functions import helper_functions
-from NRT_functions import losses
+from nrt import helpers
+from nrt import losses
 
 def run_plane_sequential_optimization(parameters, dataloader, savepath = None, key_seed = 0, g0_init = None, om_init = None, S_init = None, same_init_across_K = False):
     """
@@ -80,7 +80,7 @@ def run_plane_sequential_optimization(parameters, dataloader, savepath = None, k
     grad_sep_g0 = jit(grad(losses.sep_plane_KernChi_seq, argnums=0))
     grad_sep_om = jit(grad(losses.sep_plane_KernChi_seq, argnums=1))
     grad_sep_S = jit(grad(losses.sep_plane_KernChi_seq, argnums=2))
-    calc_chi = jit(helper_functions.calc_chi_plane)
+    calc_chi = jit(helpers.calc_chi_plane)
 
     loss_pos = jit(losses.pos_plane_seq)
     # loss_pos = losses.pos_plane_seq
@@ -107,7 +107,7 @@ def run_plane_sequential_optimization(parameters, dataloader, savepath = None, k
     if not os.path.isdir(savepath):
         os.makedirs(savepath, exist_ok=True)
 
-    helper_functions.save_parameters_json(parameters, "parameters", savepath)
+    helpers.save_parameters_json(parameters, "parameters", savepath)
     print("\nOPTIMISATION BEGINNING\n")
 
     results = {
@@ -311,19 +311,19 @@ def run_plane_sequential_optimization(parameters, dataloader, savepath = None, k
                 checkpoint_lambdas_pos = Lambdas_pos[:save_counter].copy()
                 checkpoint_lambdas_norm = Lambdas_norm[:save_counter].copy()
 
-                helper_functions.save_obj(g0, f"g0_step_{step}", checkpoint_dir)
-                helper_functions.save_obj(om, f"om_step_{step}", checkpoint_dir)
-                helper_functions.save_obj(S, f"S_step_{step}", checkpoint_dir)
-                helper_functions.save_obj(checkpoint_losses, f"L_step_{step}", checkpoint_dir)
-                helper_functions.save_obj(min_L, f"min_L_step_{step}", checkpoint_dir)
-                helper_functions.save_obj(checkpoint_lambdas_pos, f"lambda_pos_step_{step}", checkpoint_dir)
-                helper_functions.save_obj(checkpoint_lambdas_norm, f"lambda_norm_step_{step}", checkpoint_dir)
+                helpers.save_obj(g0, f"g0_step_{step}", checkpoint_dir)
+                helpers.save_obj(om, f"om_step_{step}", checkpoint_dir)
+                helpers.save_obj(S, f"S_step_{step}", checkpoint_dir)
+                helpers.save_obj(checkpoint_losses, f"L_step_{step}", checkpoint_dir)
+                helpers.save_obj(min_L, f"min_L_step_{step}", checkpoint_dir)
+                helpers.save_obj(checkpoint_lambdas_pos, f"lambda_pos_step_{step}", checkpoint_dir)
+                helpers.save_obj(checkpoint_lambdas_norm, f"lambda_norm_step_{step}", checkpoint_dir)
 
                 # Also save best parameters if they exist
                 if min_L[1] < np.inf:
-                    helper_functions.save_obj(g0_best, f"g0_best_step_{step}", checkpoint_dir)
-                    helper_functions.save_obj(om_best, f"om_best_step_{step}", checkpoint_dir)
-                    helper_functions.save_obj(S_best, f"S_best_step_{step}", checkpoint_dir)
+                    helpers.save_obj(g0_best, f"g0_best_step_{step}", checkpoint_dir)
+                    helpers.save_obj(om_best, f"om_best_step_{step}", checkpoint_dir)
+                    helpers.save_obj(S_best, f"S_best_step_{step}", checkpoint_dir)
 
                 print(f"  → Checkpoint saved at step {step}")
 
@@ -347,20 +347,20 @@ def run_plane_sequential_optimization(parameters, dataloader, savepath = None, k
 
         # Now save g0 and the losses
         print(f"Saving results to {savepath}...")
-        helper_functions.save_obj(g0_best, f"g0_{counter}", savepath)
-        helper_functions.save_obj(g0_init_save, f"g0_init_{counter}", savepath)
-        helper_functions.save_obj(Losses, f"L_{counter}", savepath)
-        helper_functions.save_obj(min_L, f"min_L_{counter}", savepath)
-        helper_functions.save_obj(om, f"om_{counter}", savepath)
-        helper_functions.save_obj(om_best, f"om_{counter}", savepath)
-        helper_functions.save_obj(S, f"S_{counter}", savepath)
-        helper_functions.save_obj(S_best, f"S_{counter}", savepath)
-        helper_functions.save_obj(S_init_save, f"S_init_{counter}", savepath)
-        helper_functions.save_obj(g0, f"g0_final_{counter}", savepath)
-        helper_functions.save_obj(om, f"om_final_{counter}", savepath)
-        helper_functions.save_obj(S, f"S_final_{counter}", savepath)
-        helper_functions.save_obj(Lambdas_pos, f"lambda_pos_{counter}", savepath)
-        helper_functions.save_obj(Lambdas_norm, f"lambda_norm_{counter}", savepath)
+        helpers.save_obj(g0_best, f"g0_{counter}", savepath)
+        helpers.save_obj(g0_init_save, f"g0_init_{counter}", savepath)
+        helpers.save_obj(Losses, f"L_{counter}", savepath)
+        helpers.save_obj(min_L, f"min_L_{counter}", savepath)
+        helpers.save_obj(om, f"om_{counter}", savepath)
+        helpers.save_obj(om_best, f"om_{counter}", savepath)
+        helpers.save_obj(S, f"S_{counter}", savepath)
+        helpers.save_obj(S_best, f"S_{counter}", savepath)
+        helpers.save_obj(S_init_save, f"S_init_{counter}", savepath)
+        helpers.save_obj(g0, f"g0_final_{counter}", savepath)
+        helpers.save_obj(om, f"om_final_{counter}", savepath)
+        helpers.save_obj(S, f"S_final_{counter}", savepath)
+        helpers.save_obj(Lambdas_pos, f"lambda_pos_{counter}", savepath)
+        helpers.save_obj(Lambdas_norm, f"lambda_norm_{counter}", savepath)
         print(f"Saved 14 pickle files for iteration {counter}")
 
         results["g0_best_list"].append(g0_best)
@@ -379,7 +379,6 @@ def run_plane_sequential_optimization(parameters, dataloader, savepath = None, k
     
     results["savepath"] = savepath
     return results
-
 
 if __name__ == "__main__":
     T = 5000                   # How many gradient steps

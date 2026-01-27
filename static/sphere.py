@@ -8,8 +8,8 @@ import os
 from jax.config import config
 config.update("jax_debug_nans", True)
 
-from NRT_functions import losses
-from NRT_functions import helper_functions
+from nrt import losses
+from nrt import helpers
 from scipy.spatial.transform import Rotation as Rot
 
 ##### Set a load of parameters ######
@@ -64,7 +64,7 @@ if sep_loss_choice == 3:
 
     loss_sep = jit(losses.sep_circ_KernChi)
     grad_sep = jit(grad(losses.sep_circ_KernChi))
-    calc_chi = jit(helper_functions.calc_chi_sphere)
+    calc_chi = jit(helpers.calc_chi_sphere)
 
     parameters.update({"sigma_sq": sigma_sq, "sigma_theta": sigma_theta, "sep_loss_choice": sep_loss_choice})
 
@@ -89,7 +89,7 @@ if not os.path.isdir(f"data/{today}/{now}"):
     os.mkdir(f"data/{today}/{now}")
 
 
-helper_functions.save_parameters_json(parameters, "parameters", savepath)
+helpers.save_parameters_json(parameters, "parameters", savepath)
 print("\nOPTIMISATION BEGINNING\n")
 
 for counter in range(K):
@@ -115,7 +115,7 @@ for counter in range(K):
             # Sample some base points
             xyz_base = np.random.normal(size = [3,N_rand])
             xyz_base = xyz_base/np.linalg.norm(xyz_base, axis = 0)[np.newaxis, :]
-            phi_base = helper_functions.convert_angles(xyz_base)
+            phi_base = helpers.convert_angles(xyz_base)
 
             # Create some stacked transformed versions
             xyz = np.zeros([3, N_rand*(N_shift+1)])
@@ -125,10 +125,10 @@ for counter in range(K):
             rand_rotations = Rot.random(N_shift).as_matrix()
             for rand_rot in range(N_shift):
                 xyz[:,(rand_rot+1)*N_rand:(rand_rot+2)*N_rand] = np.matmul(rand_rotations[rand_rot,:,:], xyz_base)
-                phi[:,(rand_rot+1)*N_rand:(rand_rot+2)*N_rand] = helper_functions.convert_angles(xyz[:,(rand_rot+1)*N_rand:(rand_rot+2)*N_rand])
+                phi[:,(rand_rot+1)*N_rand:(rand_rot+2)*N_rand] = helpers.convert_angles(xyz[:,(rand_rot+1)*N_rand:(rand_rot+2)*N_rand])
 
-            I = helper_functions.initialise_irreps_sphere(ell_max, phi)
-            G_I = helper_functions.irrep_transforms_sphere(ell_max, rand_rotations)
+            I = helpers.initialise_irreps_sphere(ell_max, phi)
+            G_I = helpers.irrep_transforms_sphere(ell_max, rand_rotations)
             if sep_loss_choice == 1 or sep_loss_choice == 3:
                 chi = calc_chi(phi[:,:N_rand], sigma_theta)
 
@@ -182,9 +182,9 @@ for counter in range(K):
     if min_L[1] == np.inf:
         W_best = W
 
-    W_best = helper_functions.normalise_weights(W_best)
-    W_init = helper_functions.normalise_weights(W_init)
-    helper_functions.save_obj(W_best, f"W_{counter}", savepath)
-    helper_functions.save_obj(W_init, f"W_init_{counter}", savepath)
-    helper_functions.save_obj(Losses, f"L_{counter}", savepath)
-    helper_functions.save_obj(min_L, f"min_L_{counter}", savepath)
+    W_best = helpers.normalise_weights(W_best)
+    W_init = helpers.normalise_weights(W_init)
+    helpers.save_obj(W_best, f"W_{counter}", savepath)
+    helpers.save_obj(W_init, f"W_init_{counter}", savepath)
+    helpers.save_obj(Losses, f"L_{counter}", savepath)
+    helpers.save_obj(min_L, f"min_L_{counter}", savepath)

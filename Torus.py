@@ -6,8 +6,8 @@ from datetime import datetime
 import os
 
 # And functions I've written
-from NRT_functions import helper_functions
-from NRT_functions import losses
+from nrt import helpers
+from nrt import losses
 
 ##### Set a load of parameters ######
 
@@ -58,7 +58,7 @@ if om_init_scheme == 0:
 
     parameters.update({"om_init_scheme":om_init_scheme,"M": M, "N_shift": N_shift,
                        "lambda_equi_init": lambda_equi_init, "k_eq": k_eq, "alpha_eq": alpha_eq, "gamma_eq": gamma_eq})
-    om = helper_functions.freq_selector(M)
+    om = helpers.freq_selector(M)
     loss_equi = jit(losses.equi_circ_smart_B)
     grad_equi = jit(grad(losses.equi_circ_smart_B, argnums=0))
     grad_equi_B = jit(grad(losses.equi_circ_smart_B, argnums=1))
@@ -70,7 +70,7 @@ else:
 
         parameters.update({"om_init_scheme":om_init_scheme,"base_freqs":base_freqs})
         M = int(np.floor((D - 1) / 2))
-        om = helper_functions.freq_selector(M)
+        om = helpers.freq_selector(M)
         om = np.multiply(om, base_freqs[None,:])
     elif om_init_scheme == 1.5:
         base_lengthscale = 5
@@ -79,7 +79,7 @@ else:
 
         parameters.update({"om_init_scheme":om_init_scheme,"base_lengthscale":base_lengthscale, "relative_scale":relative_scale, "relative_angle":relative_angle})
         M = int(np.floor((D - 1) / 2))
-        om = helper_functions.freqs_grid_torus(base_lengthscale, relative_scale, relative_angle, M)
+        om = helpers.freqs_grid_torus(base_lengthscale, relative_scale, relative_angle, M)
     elif om_init_scheme == 2:
         max_freq = 30
 
@@ -119,7 +119,7 @@ elif sep_loss_choice == 1:
     parameters.update({"sigma_theta": sigma_theta, "f": f})
     loss_sep = jit(losses.sep_circ_EucChi)
     grad_sep = jit(grad(losses.sep_circ_EucChi, argnums=0))
-    calc_chi = jit(helper_functions.calc_chi_torus)
+    calc_chi = jit(helpers.calc_chi_torus)
 elif sep_loss_choice == 2:
     sigma_sq = 0.1
 
@@ -134,7 +134,7 @@ elif sep_loss_choice == 3:
     parameters.update({"sigma_sq": sigma_sq, "sigma_theta": sigma_theta, "f": f, "chi_choice": 2})
     loss_sep = jit(losses.sep_circ_KernChi)
     grad_sep = jit(grad(losses.sep_circ_KernChi, argnums=0))
-    calc_chi = jit(helper_functions.calc_chi_torus)
+    calc_chi = jit(helpers.calc_chi_torus)
 
 # How to sample all the points
 # 0: Uniform on circle
@@ -147,7 +147,7 @@ if sample_choice == 1:
 parameters.update({"sep_loss_choice": sep_loss_choice, "sample_choice": sample_choice})
 loss_pos = jit(losses.pos_circ)
 grad_pos = jit(grad(losses.pos_circ, argnums = 0))
-init_irreps = jit(helper_functions.init_irreps_2D)
+init_irreps = jit(helpers.init_irreps_2D)
 key = random.PRNGKey(0)
 
 # Setup save file locations
@@ -164,7 +164,7 @@ savepath = f"data/{today}/{now}/"
 if not os.path.isdir(f"data/{today}/{now}"):
     os.mkdir(f"data/{today}/{now}")
 
-helper_functions.save_parameters_json(parameters, "parameters", savepath)
+helpers.save_parameters_json(parameters, "parameters", savepath)
 print("\nOPTIMISATION BEGINNING\n")
 
 for counter in range(K):
@@ -177,7 +177,7 @@ for counter in range(K):
     W_best = W                          # Initialise best W somewhere
 
     if om_init_scheme == 3:
-        om = helper_functions.freqs_grid_torus(base_freqs[counter], relative_freqs[counter], angles[counter], M)
+        om = helpers.freqs_grid_torus(base_freqs[counter], relative_freqs[counter], angles[counter], M)
 
     if equi_flag:
         Losses = np.zeros([4, int(T / save_iters)])   # Holder for losses, total, sep, and equi
@@ -215,7 +215,7 @@ for counter in range(K):
                 phi_full = np.mod(np.reshape(phi_pos[:, None, :] + phi_shift[None, :, :], [N_pos * (N_shift + 1), 2], order='F'), 2 * np.pi)
                 I_full = init_irreps(om, phi_full)
                 I_pos = I_full[:, :N_pos]
-                G_I = helper_functions.irrep_transforms_2D(om, phi_shift[1:, :])
+                G_I = helpers.irrep_transforms_2D(om, phi_shift[1:, :])
             else:
                 I_pos = init_irreps(om, phi_pos)
 
@@ -303,17 +303,17 @@ for counter in range(K):
             B = B - epsilon*means_debiased_B/(np.sqrt(sec_moms_debiased_B + eta))
 
     # Now save the weights and the losses
-    W_best = helper_functions.normalise_weights(W_best)
-    W_init = helper_functions.normalise_weights(W_init)
-    helper_functions.save_obj(W_best, f"W_{counter}", savepath)
-    helper_functions.save_obj(W_init, f"W_init_{counter}", savepath)
-    helper_functions.save_obj(W, f"W_final_{counter}", savepath)
-    helper_functions.save_obj(Losses, f"L_{counter}", savepath)
-    helper_functions.save_obj(min_L, f"min_L_{counter}", savepath)
-    helper_functions.save_obj(om, f"om_{counter}", savepath)
+    W_best = helpers.normalise_weights(W_best)
+    W_init = helpers.normalise_weights(W_init)
+    helpers.save_obj(W_best, f"W_{counter}", savepath)
+    helpers.save_obj(W_init, f"W_init_{counter}", savepath)
+    helpers.save_obj(W, f"W_final_{counter}", savepath)
+    helpers.save_obj(Losses, f"L_{counter}", savepath)
+    helpers.save_obj(min_L, f"min_L_{counter}", savepath)
+    helpers.save_obj(om, f"om_{counter}", savepath)
     if equi_flag:
-        helper_functions.save_obj(B_best, f"B_{counter}", savepath)
-        helper_functions.save_obj(B_init, f"B_init_{counter}", savepath)
+        helpers.save_obj(B_best, f"B_{counter}", savepath)
+        helpers.save_obj(B_init, f"B_init_{counter}", savepath)
 
     # And print to say iteration done
     print(f"\nDONE ITERATION {counter}: Min_Loss = {min_L[1]:.5f}\n")

@@ -1,7 +1,7 @@
 # File containing all the various loss functions I have written
 import jax.numpy as jnp
 import jax
-from NRT_functions import helper_functions
+from nrt import helpers
 
 ### LOSSES FOR CIRCLE, 3 different measures of separation quality, 1 for positivity, and 1 for equivariance
 ### ALSO THE SAME LOSSES AS FOR TORUS, ALL JUST WORKS!
@@ -108,7 +108,7 @@ def equi_smart(W, I_base, I_shift, G_I):
 
 def pos_line(W, om, phi, N_shift):
     # Create the irrep basis
-    I = helper_functions.init_irreps_1D(om, phi)
+    I = helpers.init_irreps_1D(om, phi)
 
     # Turn into normalised neural activity
     g = jnp.matmul(W, I)
@@ -122,7 +122,7 @@ def pos_line(W, om, phi, N_shift):
 
 def sep_line_Euc(W, om, phi):
     # Create the irrep basis
-    I = helper_functions.init_irreps_1D(om, phi)
+    I = helpers.init_irreps_1D(om, phi)
     N = phi.size
 
     # Turn into normalised neural activity
@@ -136,7 +136,7 @@ def sep_line_Euc(W, om, phi):
 
 def sep_line_Kern(W, om, phi, sigma_sq):
     # Create the irrep basis
-    I = helper_functions.init_irreps_1D(om, phi)
+    I = helpers.init_irreps_1D(om, phi)
     N = phi.size
 
     # Turn into normalised neural activity
@@ -150,7 +150,7 @@ def sep_line_Kern(W, om, phi, sigma_sq):
 
 def sep_line_EucChi(W, om, phi, chi):
     # Create the irrep basis
-    I = helper_functions.init_irreps_1D(om, phi)
+    I = helpers.init_irreps_1D(om, phi)
     N = phi.size
 
     # Turn into normalised neural activity
@@ -164,7 +164,7 @@ def sep_line_EucChi(W, om, phi, chi):
 
 def sep_line_KernChi(W, om, phi, sigma_sq, chi):
     # Create the irrep basis
-    I = helper_functions.init_irreps_1D(om, phi)
+    I = helpers.init_irreps_1D(om, phi)
     N = phi.size
 
     # Turn into normalised neural activity
@@ -178,8 +178,8 @@ def sep_line_KernChi(W, om, phi, sigma_sq, chi):
 
 def norm_line(W, om, phi_room, phi_other):
     # Create the irrep basis
-    I_room = helper_functions.init_irreps_1D(om, phi_room)
-    I_other = helper_functions.init_irreps_1D(om, phi_other)
+    I_room = helpers.init_irreps_1D(om, phi_room)
+    I_other = helpers.init_irreps_1D(om, phi_other)
 
     # Use the room to normalise the other representations
     g_room = jnp.matmul(W, I_room)
@@ -198,7 +198,7 @@ def norm_line(W, om, phi_room, phi_other):
 
 def pos_plane(W, om, phi, N_shift):
     # Create the irrep basis
-    I = helper_functions.init_irreps_2D(om, phi)
+    I = helpers.init_irreps_2D(om, phi)
 
     # Turn into normalised neural activity
     g = jnp.matmul(W, I)
@@ -225,9 +225,9 @@ def pos_plane_seq(g0, om, S, phi):
     shift_phi = jnp.roll(phi, 1, axis=1)
     shift_phi = shift_phi.at[:,0,:].set(0)
     d_phi = phi - shift_phi
-    T = helper_functions.get_T_2D(om, d_phi, S)
+    T = helpers.get_T_2D(om, d_phi, S)
 
-    g = helper_functions.calc_g(g0, T) # g shape: [B, L, D]
+    g = helpers.calc_g(g0, T) # g shape: [B, L, D]
 
     # measure positivity
     g_neg = (g - jnp.abs(g))/2
@@ -235,7 +235,7 @@ def pos_plane_seq(g0, om, S, phi):
 
 def sep_plane_Euc(W, om, phi):
     # Create the irrep basis
-    I = helper_functions.init_irreps_2D(om, phi)
+    I = helpers.init_irreps_2D(om, phi)
     N = phi.size
 
     # Turn into normalised neural activity
@@ -249,7 +249,7 @@ def sep_plane_Euc(W, om, phi):
 
 def sep_plane_Kern(W, om, phi, sigma_sq):
     # Create the irrep basis
-    I = helper_functions.init_irreps_2D(om, phi)
+    I = helpers.init_irreps_2D(om, phi)
     N = phi.size
 
     # Turn into normalised neural activity
@@ -263,7 +263,7 @@ def sep_plane_Kern(W, om, phi, sigma_sq):
 
 def sep_plane_EucChi(W, om, phi, chi):
     # Create the irrep basis
-    I = helper_functions.init_irreps_2D(om, phi)
+    I = helpers.init_irreps_2D(om, phi)
     N = phi.shape[0]
 
     # Turn into normalised neural activity
@@ -277,7 +277,7 @@ def sep_plane_EucChi(W, om, phi, chi):
 
 def sep_plane_KernChi(W, om, phi, sigma_sq, chi):
     # Create the irrep basis
-    I = helper_functions.init_irreps_2D(om, phi)
+    I = helpers.init_irreps_2D(om, phi)
     N = phi.size
 
     # Turn into normalised neural activity
@@ -305,9 +305,9 @@ def sep_plane_KernChi_seq(g0, om, S, phi, sigma_sq, chi):
     shift_phi = jnp.roll(phi, 1, axis=1)
     shift_phi = shift_phi.at[:,0,:].set(0)
     d_phi = phi - shift_phi
-    T = helper_functions.get_T_2D(om, d_phi, S)
+    T = helpers.get_T_2D(om, d_phi, S)
 
-    g = helper_functions.calc_g(g0, T) # g shape: [B, L, D]
+    g = helpers.calc_g(g0, T) # g shape: [B, L, D]
 
     # measure separation
     Xi = jnp.exp(-jnp.sum(jnp.power(g[:,None,:,:] - g[:,:,None,:],2)/(2*sigma_sq),axis=3)) # the guassian bump across L
@@ -317,12 +317,12 @@ def sep_plane_KernChi_Module(W, grid_params, phi, sigma_sq, chi):
     # Create the frequencies
     M = W.shape[0]
     M_Q = int(M/2)
-    om_1 = helper_functions.freq_module_plane_new(grid_params[0:4], M_Q)
-    om_2 = helper_functions.freq_module_place_new(grid_params[4:], M_Q)
+    om_1 = helpers.freq_module_plane_new(grid_params[0:4], M_Q)
+    om_2 = helpers.freq_module_place_new(grid_params[4:], M_Q)
     om = jnp.vstack([om_1, om_2])
 
     # Create the irrep basis
-    I = helper_functions.init_irreps_2D(om, phi)
+    I = helpers.init_irreps_2D(om, phi)
     N = phi.size
 
     # Turn into normalised neural activity
@@ -337,8 +337,8 @@ def sep_plane_KernChi_Module(W, grid_params, phi, sigma_sq, chi):
 
 def norm_plane(W, om, phi_room, phi_other):
     # Create the irrep basis
-    I_room = helper_functions.init_irreps_2D(om, phi_room)
-    I_other = helper_functions.init_irreps_2D(om, phi_other)
+    I_room = helpers.init_irreps_2D(om, phi_room)
+    I_other = helpers.init_irreps_2D(om, phi_other)
 
     # Use the room to normalise the other representations
     g_room = jnp.matmul(W, I_room)
@@ -365,15 +365,15 @@ def norm_plane_seq(g0, om, S, phi_room, phi_other):
     shift_phi_room = jnp.roll(phi_room, 1, axis=1)
     shift_phi_room = shift_phi_room.at[:,0,:].set(0)
     d_phi_room = phi_room - shift_phi_room
-    T_room = helper_functions.get_T_2D(om, d_phi_room, S)
+    T_room = helpers.get_T_2D(om, d_phi_room, S)
 
     shift_phi_other = jnp.roll(phi_other, 1, axis=1)
     shift_phi_other = shift_phi_other.at[:,0,:].set(0)
     d_phi_other = phi_other - shift_phi_other
-    T_other = helper_functions.get_T_2D(om, d_phi_other, S)
+    T_other = helpers.get_T_2D(om, d_phi_other, S)
 
-    g_room = helper_functions.calc_g(g0, T_room, norm=False) # g shape: [B, L, D]
-    g_other = helper_functions.calc_g(g0, T_other, norm=False) # g shape: [B, L, D]
+    g_room = helpers.calc_g(g0, T_room, norm=False) # g shape: [B, L, D]
+    g_other = helpers.calc_g(g0, T_other, norm=False) # g shape: [B, L, D]
 
     [_,_,D] = g_room.shape
 
@@ -389,4 +389,4 @@ def norm_plane_seq(g0, om, S, phi_room, phi_other):
 # Set of losses for the sphere
 
 def sep_sphere_Euc(W, I):
-    I = helper_functions.init_irreps_sphere()
+    I = helpers.init_irreps_sphere()

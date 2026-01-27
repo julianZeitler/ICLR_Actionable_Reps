@@ -10,7 +10,7 @@ Included in the code are:
     5. Volume.py
     6. PeriodicVolume.py
 
-2. A folder which acts as a module, NRT_functions (NRT = Neural Representation Theory), which contains three files
+2. A folder which acts as a module, nrt (NRT = Neural Representation Theory), which contains three files
     1. helper_functions.py - just some helpful functions
     2. losses.py - the losses used
     3. plotter.py - some helpful plotting functions

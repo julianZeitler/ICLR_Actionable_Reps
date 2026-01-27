@@ -6,8 +6,8 @@ from datetime import datetime
 import os
 
 # And functions I've written
-from NRT_functions import helper_functions
-from NRT_functions import losses
+from nrt import helpers
+from nrt import losses
 
 ##### Set a load of parameters ######
 
@@ -100,7 +100,7 @@ elif sep_loss_choice == 1:
     parameters.update({"sigma_theta": sigma_theta, "f": f})
     loss_sep = jit(losses.sep_circ_EucChi)
     grad_sep = jit(grad(losses.sep_circ_EucChi, argnums=0))
-    calc_chi = jit(helper_functions.calc_chi_circ)
+    calc_chi = jit(helpers.calc_chi_circ)
 elif sep_loss_choice == 2:
     sigma_sq = 7
 
@@ -115,7 +115,7 @@ elif sep_loss_choice == 3:
     parameters.update({"sigma_sq": sigma_sq, "sigma_theta": sigma_theta, "f": f})
     loss_sep = jit(losses.sep_circ_KernChi)
     grad_sep = jit(grad(losses.sep_circ_KernChi, argnums=0))
-    calc_chi = jit(helper_functions.calc_chi_circ)
+    calc_chi = jit(helpers.calc_chi_circ)
 
 # How to sample all the points
 # 0: Uniform on circle
@@ -128,7 +128,7 @@ if sample_choice == 1:
 parameters.update({"sep_loss_choice": sep_loss_choice, "sample_choice": sample_choice})
 loss_pos = jit(losses.pos_circ)
 grad_pos = jit(grad(losses.pos_circ, argnums = 0))
-init_irreps = jit(helper_functions.init_irreps_1D)
+init_irreps = jit(helpers.init_irreps_1D)
 key = random.PRNGKey(0)
 
 # Setup save file locations
@@ -145,7 +145,7 @@ savepath = f"data/{today}/{now}/"
 if not os.path.isdir(f"data/{today}/{now}"):
     os.mkdir(f"data/{today}/{now}")
 
-helper_functions.save_parameters_json(parameters, "parameters", savepath)
+helpers.save_parameters_json(parameters, "parameters", savepath)
 print("\nOPTIMISATION BEGINNING\n")
 
 for counter in range(K):
@@ -198,7 +198,7 @@ for counter in range(K):
                 phi_full = np.mod(np.ndarray.flatten(phi_pos[:, np.newaxis] + phi_shift[np.newaxis, :], order='F'), 2 * np.pi)
                 I_full = init_irreps(om, phi_full)
                 I_pos = I_full[:, :N_pos]
-                G_I = helper_functions.irrep_transforms_1D(om, phi_shift[1:])
+                G_I = helpers.irrep_transforms_1D(om, phi_shift[1:])
             else:
                 I_pos = init_irreps(om, phi_pos)
 
@@ -291,17 +291,17 @@ for counter in range(K):
             B = B - epsilon*means_debiased_B/(np.sqrt(sec_moms_debiased_B + eta))
 
     # Now save the weights and the losses
-    W_best = helper_functions.normalise_weights(W_best)
-    W_init = helper_functions.normalise_weights(W_init)
-    helper_functions.save_obj(W_best, f"W_{counter}", savepath)
-    helper_functions.save_obj(W, f"W_final_{counter}", savepath)
-    helper_functions.save_obj(W_init, f"W_init_{counter}", savepath)
-    helper_functions.save_obj(Losses, f"L_{counter}", savepath)
-    helper_functions.save_obj(min_L, f"min_L_{counter}", savepath)
-    helper_functions.save_obj(om, f"om_{counter}", savepath)
+    W_best = helpers.normalise_weights(W_best)
+    W_init = helpers.normalise_weights(W_init)
+    helpers.save_obj(W_best, f"W_{counter}", savepath)
+    helpers.save_obj(W, f"W_final_{counter}", savepath)
+    helpers.save_obj(W_init, f"W_init_{counter}", savepath)
+    helpers.save_obj(Losses, f"L_{counter}", savepath)
+    helpers.save_obj(min_L, f"min_L_{counter}", savepath)
+    helpers.save_obj(om, f"om_{counter}", savepath)
     if equi_flag:
-        helper_functions.save_obj(B_best, f"B_{counter}", savepath)
-        helper_functions.save_obj(B_init, f"B_init_{counter}", savepath)
+        helpers.save_obj(B_best, f"B_{counter}", savepath)
+        helpers.save_obj(B_init, f"B_init_{counter}", savepath)
 
     # And print to say iteration done
     print(f"\nDONE ITERATION {step}: Min_Loss = {min_L[1]:.5f}\n")

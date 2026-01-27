@@ -6,8 +6,8 @@ from datetime import datetime
 import os
 
 # And functions I've written
-from NRT_functions import helper_functions
-from NRT_functions import losses
+from nrt import helpers
+from nrt import losses
 
 def run_plane_optimization(parameters, om_init_scheme, sep_loss_choice, chi_choice,
                           W_constrain=0, savepath=None, key_seed=0):
@@ -68,13 +68,13 @@ def run_plane_optimization(parameters, om_init_scheme, sep_loss_choice, chi_choi
         om_init_scale = parameters["om_init_scale"]
     elif om_init_scheme == 1:
         base_freqs = np.array(parameters["base_freqs"])
-        om = helper_functions.freq_selector(M)
+        om = helpers.freq_selector(M)
         om = np.multiply(om, base_freqs[None, :])
     elif om_init_scheme == 1.5:
         base_lengthscale = parameters["base_lengthscale"]
         relative_scale = parameters["relative_scale"]
         relative_angle = parameters["relative_angle"]
-        om = helper_functions.freqs_grid_plane(base_lengthscale, relative_scale, relative_angle, M)
+        om = helpers.freqs_grid_plane(base_lengthscale, relative_scale, relative_angle, M)
     elif om_init_scheme == 2:
         max_freq = parameters["max_freq"]
         om = np.random.randint(1, max_freq, size=[M, 2])
@@ -94,8 +94,8 @@ def run_plane_optimization(parameters, om_init_scheme, sep_loss_choice, chi_choi
         M_1 = int(M * proportion)
         M_2 = M - M_1
 
-        om_1 = helper_functions.freqs_grid_plane(base_lengthscale_1, relative_scale_1, relative_angle_1, M_1)
-        om_2 = helper_functions.freqs_grid_plane(base_lengthscale_2, relative_scale_2, relative_angle_2, M_2, module_angle)
+        om_1 = helpers.freqs_grid_plane(base_lengthscale_1, relative_scale_1, relative_angle_1, M_1)
+        om_2 = helpers.freqs_grid_plane(base_lengthscale_2, relative_scale_2, relative_angle_2, M_2, module_angle)
         om = np.vstack([om_1, om_2])
 
         if W_constrain:
@@ -129,9 +129,9 @@ def run_plane_optimization(parameters, om_init_scheme, sep_loss_choice, chi_choi
         grad_sep_W = jit(grad(losses.sep_plane_EucChi, argnums=0))
         grad_sep_om = jit(grad(losses.sep_plane_EucChi, argnums=1))
         if chi_choice == 0:
-            calc_chi = jit(helper_functions.calc_chi_plane)
+            calc_chi = jit(helpers.calc_chi_plane)
         elif chi_choice == 1:
-            calc_chi = jit(helper_functions.calc_chi_plane_euc)
+            calc_chi = jit(helpers.calc_chi_plane_euc)
     elif sep_loss_choice == 2:
         sigma_sq = parameters["sigma_sq"]
         loss_sep = jit(losses.sep_plane_Kern)
@@ -151,11 +151,11 @@ def run_plane_optimization(parameters, om_init_scheme, sep_loss_choice, chi_choi
             grad_sep_W = jit(grad(losses.sep_plane_KernChi, argnums=0))
             grad_sep_om = jit(grad(losses.sep_plane_KernChi, argnums=1))
         if chi_choice == 0:
-            calc_chi = jit(helper_functions.calc_chi_plane)
+            calc_chi = jit(helpers.calc_chi_plane)
         elif chi_choice == 1:
-            calc_chi = jit(helper_functions.calc_chi_plane_euc)
+            calc_chi = jit(helpers.calc_chi_plane_euc)
         elif chi_choice == 2:
-            calc_chi = jit(helper_functions.calc_chi_plane_exp)
+            calc_chi = jit(helpers.calc_chi_plane_exp)
 
     loss_pos = jit(losses.pos_plane)
     grad_pos_W = jit(grad(losses.pos_plane, argnums=0))
@@ -163,7 +163,7 @@ def run_plane_optimization(parameters, om_init_scheme, sep_loss_choice, chi_choi
     loss_norm = jit(losses.norm_plane)
     grad_norm_W = jit(grad(losses.norm_plane, argnums=0))
     grad_norm_om = jit(grad(losses.norm_plane, argnums=1))
-    init_irreps = jit(helper_functions.init_irreps_2D)
+    init_irreps = jit(helpers.init_irreps_2D)
 
     key = random.key(key_seed)
 
@@ -179,7 +179,7 @@ def run_plane_optimization(parameters, om_init_scheme, sep_loss_choice, chi_choi
     if not os.path.isdir(savepath):
         os.mkdir(savepath)
 
-    helper_functions.save_parameters_json(parameters, "parameters", savepath)
+    helpers.save_parameters_json(parameters, "parameters", savepath)
     print("\nOPTIMISATION BEGINNING\n")
 
     results = {
@@ -205,15 +205,15 @@ def run_plane_optimization(parameters, om_init_scheme, sep_loss_choice, chi_choi
             base_freqs = np.ndarray.flatten(parameters["grid_params"][0])
             relative_freqs = np.ndarray.flatten(parameters["grid_params"][1])
             angles = np.ndarray.flatten(parameters["grid_params"][2])
-            om = helper_functions.freqs_grid_plane(base_freqs[counter], relative_freqs[counter], angles[counter], M)
+            om = helpers.freqs_grid_plane(base_freqs[counter], relative_freqs[counter], angles[counter], M)
         elif om_init_scheme == 5:
             Q = parameters["Q"]
             mod_init_scale = parameters["mod_init_scale"]
             om = np.random.normal(0, mod_init_scale, [Q*4])
         elif om_init_scheme == 6:
             comb_param = parameters["comb_param"]
-            om_1 = helper_functions.freqs_grid_plane(base_lengthscale_1, relative_scale_1, relative_angle_1, M_1)
-            om_2 = helper_functions.freqs_grid_plane(comb_param[counter, 0], relative_scale_2, relative_angle_2, M_2, comb_param[counter, 1])
+            om_1 = helpers.freqs_grid_plane(base_lengthscale_1, relative_scale_1, relative_angle_1, M_1)
+            om_2 = helpers.freqs_grid_plane(comb_param[counter, 0], relative_scale_2, relative_angle_2, M_2, comb_param[counter, 1])
             om = np.vstack([om_1, om_2])
 
         W_init = W
@@ -347,15 +347,15 @@ def run_plane_optimization(parameters, om_init_scheme, sep_loss_choice, chi_choi
                 W = W.at[M_1*2 + 2:, 1:M_1*2 + 1].set(0)
 
         # Save the weights and the losses
-        helper_functions.save_obj(W_best, f"W_{counter}", savepath)
-        helper_functions.save_obj(W_init, f"W_init_{counter}", savepath)
-        helper_functions.save_obj(Losses, f"L_{counter}", savepath)
-        helper_functions.save_obj(min_L, f"min_L_{counter}", savepath)
-        helper_functions.save_obj(om_best, f"om_{counter}", savepath)
-        helper_functions.save_obj(W, f"W_final_{counter}", savepath)
-        helper_functions.save_obj(om, f"om_final_{counter}", savepath)
-        helper_functions.save_obj(Lambdas_pos, f"lambda_pos_{counter}", savepath)
-        helper_functions.save_obj(Lambdas_norm, f"lambda_norm_{counter}", savepath)
+        helpers.save_obj(W_best, f"W_{counter}", savepath)
+        helpers.save_obj(W_init, f"W_init_{counter}", savepath)
+        helpers.save_obj(Losses, f"L_{counter}", savepath)
+        helpers.save_obj(min_L, f"min_L_{counter}", savepath)
+        helpers.save_obj(om_best, f"om_{counter}", savepath)
+        helpers.save_obj(W, f"W_final_{counter}", savepath)
+        helpers.save_obj(om, f"om_final_{counter}", savepath)
+        helpers.save_obj(Lambdas_pos, f"lambda_pos_{counter}", savepath)
+        helpers.save_obj(Lambdas_norm, f"lambda_norm_{counter}", savepath)
 
         # Store results
         results['W_best_list'].append(W_best)

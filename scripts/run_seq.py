@@ -1,5 +1,5 @@
-from PlaneSequential import run_plane_sequential_optimization
-from DataHandling import TrajectoryDataset
+from sequential.plane import run_plane_sequential_optimization
+from nrt.data import TrajectoryDataset
 from sweep_analysis_sequential import generate_analysis_plots
 from datetime import datetime
 import pickle

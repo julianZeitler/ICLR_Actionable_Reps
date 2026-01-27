@@ -6,8 +6,8 @@ from datetime import datetime
 import os
 
 # And functions I've written
-from NRT_functions import helper_functions
-from NRT_functions import losses
+from nrt import helpers
+from nrt import losses
 
 ##### Set a load of parameters ######
 
@@ -75,7 +75,7 @@ else:
         base_freqs = np.array([1, 1])           # Base frequencies, integers
 
         parameters.update({"om_init_scheme": om_init_scheme, "base_freqs": base_freqs})
-        om = helper_functions.freq_selector(M)
+        om = helpers.freq_selector(M)
         om = np.multiply(om, base_freqs[None, :])
     elif om_init_scheme == 1.5:
         base_lengthscale = 1.3
@@ -83,7 +83,7 @@ else:
         relative_angle = np.pi/3
 
         parameters.update({"om_init_scheme": om_init_scheme, "base_lengthscale": base_lengthscale, "relative_scale": relative_scale, "relative_angle": relative_angle})
-        om = helper_functions.freqs_grid_plane(base_lengthscale, relative_scale, relative_angle, M)
+        om = helpers.freqs_grid_plane(base_lengthscale, relative_scale, relative_angle, M)
     elif om_init_scheme == 2:
         max_freq = 30
 
@@ -123,8 +123,8 @@ else:
                            "relative_scale_1": relative_scale_1, "relative_angle_1": relative_angle_1, "base_lengthscale_2": base_lengthscale_2,
                            "relative_scale_2": relative_scale_2, "relative_angle_2": relative_angle_2, "module_angle": module_angle,
                            "W_constrain": W_constrain})
-        om_1 = helper_functions.freqs_grid_plane(base_lengthscale_1, relative_scale_1, relative_angle_1, M_1)
-        om_2 = helper_functions.freqs_grid_plane(base_lengthscale_2, relative_scale_2, relative_angle_2, M_2, module_angle)
+        om_1 = helpers.freqs_grid_plane(base_lengthscale_1, relative_scale_1, relative_angle_1, M_1)
+        om_2 = helpers.freqs_grid_plane(base_lengthscale_2, relative_scale_2, relative_angle_2, M_2, module_angle)
         om = np.vstack([om_1, om_2])
 
         if W_constrain:
@@ -185,9 +185,9 @@ elif sep_loss_choice == 1:
     grad_sep_W = jit(grad(losses.sep_plane_EucChi, argnums=0))
     grad_sep_om = jit(grad(losses.sep_plane_EucChi, argnums=1))
     if chi_choice == 0:
-        calc_chi = jit(helper_functions.calc_chi_plane)
+        calc_chi = jit(helpers.calc_chi_plane)
     elif chi_choice == 1:
-        calc_chi = jit(helper_functions.calc_chi_plane_euc)
+        calc_chi = jit(helpers.calc_chi_plane_euc)
 elif sep_loss_choice == 2:
     sigma_sq = 0.05
 
@@ -210,11 +210,11 @@ elif sep_loss_choice == 3:
         grad_sep_W = jit(grad(losses.sep_plane_KernChi, argnums=0))
         grad_sep_om = grad(losses.sep_plane_KernChi, argnums=1)
     if chi_choice == 0:
-        calc_chi = jit(helper_functions.calc_chi_plane)
+        calc_chi = jit(helpers.calc_chi_plane)
     elif chi_choice == 1:
-        calc_chi = jit(helper_functions.calc_chi_plane_euc)
+        calc_chi = jit(helpers.calc_chi_plane_euc)
     elif chi_choice == 2:
-        calc_chi = jit(helper_functions.calc_chi_plane_exp)
+        calc_chi = jit(helpers.calc_chi_plane_exp)
 
 parameters.update({"sep_loss_choice": sep_loss_choice})
 loss_pos = jit(losses.pos_plane)
@@ -223,7 +223,7 @@ grad_pos_om = jit(grad(losses.pos_plane, argnums=1))
 loss_norm = jit(losses.norm_plane)
 grad_norm_W = jit(grad(losses.norm_plane, argnums=0))
 grad_norm_om = jit(grad(losses.norm_plane, argnums=1))
-init_irreps = jit(helper_functions.init_irreps_2D)
+init_irreps = jit(helpers.init_irreps_2D)
 key = random.PRNGKey(0)
 
 # Setup save file locations
@@ -240,7 +240,7 @@ savepath = f"data/{today}/{now}/"
 if not os.path.isdir(f"data/{today}/{now}"):
     os.mkdir(f"data/{today}/{now}")
 
-helper_functions.save_obj(parameters, "parameters", savepath)
+helpers.save_obj(parameters, "parameters", savepath)
 print("\nOPTIMISATION BEGINNING\n")
 
 for counter in range(K):
@@ -251,12 +251,12 @@ for counter in range(K):
         key, subkey2 = random.split(key)
         om = random.uniform(subkey2, [M, 3]) * om_init_scale
     elif om_init_scheme == 3:
-        om = helper_functions.freqs_grid_plane(base_freqs[counter], relative_freqs[counter], angles[counter], M)
+        om = helpers.freqs_grid_plane(base_freqs[counter], relative_freqs[counter], angles[counter], M)
     elif om_init_scheme == 5:
         om = np.random.normal(0, mod_init_scale, [Q*4])
     elif om_init_scheme == 6:
-        om_1 = helper_functions.freqs_grid_plane(base_lengthscale_1, relative_scale_1, relative_angle_1, M_1)
-        om_2 = helper_functions.freqs_grid_plane(comb_param[counter, 0], relative_scale_2, relative_angle_2, M_2, comb_param[counter, 1])
+        om_1 = helpers.freqs_grid_plane(base_lengthscale_1, relative_scale_1, relative_angle_1, M_1)
+        om_2 = helpers.freqs_grid_plane(comb_param[counter, 0], relative_scale_2, relative_angle_2, M_2, comb_param[counter, 1])
         om = np.vstack([om_1, om_2])
 
     W_init = W
@@ -392,14 +392,14 @@ for counter in range(K):
             W = W.at[M_1*2 + 2:, 1:M_1*2 + 1].set(0)
 
     # Now save the weights and the losses
-    helper_functions.save_obj(W_best, f"W_{counter}", savepath)
-    helper_functions.save_obj(W_init, f"W_init_{counter}", savepath)
-    helper_functions.save_obj(Losses, f"L_{counter}", savepath)
-    helper_functions.save_obj(min_L, f"min_L_{counter}", savepath)
-    helper_functions.save_obj(om, f"om_{counter}", savepath)
-    helper_functions.save_obj(om_best, f"om_{counter}", savepath)
-    helper_functions.save_obj(W, f"W_final_{counter}", savepath)
-    helper_functions.save_obj(om, f"om_final_{counter}", savepath)
+    helpers.save_obj(W_best, f"W_{counter}", savepath)
+    helpers.save_obj(W_init, f"W_init_{counter}", savepath)
+    helpers.save_obj(Losses, f"L_{counter}", savepath)
+    helpers.save_obj(min_L, f"min_L_{counter}", savepath)
+    helpers.save_obj(om, f"om_{counter}", savepath)
+    helpers.save_obj(om_best, f"om_{counter}", savepath)
+    helpers.save_obj(W, f"W_final_{counter}", savepath)
+    helpers.save_obj(om, f"om_final_{counter}", savepath)
 
     # And print to say iteration done
     print(f"\nDONE ITERATION {counter}: Min_Loss = {min_L[1]:.5f}\n")
