@@ -35,11 +35,8 @@ def run_plane_sequential_optimization(parameters, dataloader, savepath = None, k
     D = parameters["D"]
     M = int(np.floor((D - 1) / 2))
     K = parameters["K"]
-    N_rand = parameters["N_rand"]
-    phi_std = parameters["phi_std"]
     N_shift = parameters["N_shift"]
     Shift_std = parameters["Shift_std"]
-    norm_size = parameters["norm_size"]
     resample_iters = parameters["resample_iters"]
 
     lambda_pos_init = parameters["lambda_pos_init"]
