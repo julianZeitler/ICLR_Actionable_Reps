@@ -38,7 +38,7 @@ def quantitative_analysis_seq(Vs, widths, counter, res=70, savepath=None):
         max_score = np.max(score_60)
         mean_score = np.mean(score_60)
         axes[idx].text(0.05, 0.95, f'Max: {max_score:.3f}\nMean: {mean_score:.3f}',
-                    transform=axes[0].transAxes, verticalalignment='top',
+                    transform=axes[idx].transAxes, verticalalignment='top',
                     bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
         if idx == 0: # Small
             axes[idx].set_title('Small Ratemaps')
