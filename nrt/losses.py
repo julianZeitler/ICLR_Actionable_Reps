@@ -311,7 +311,7 @@ def sep_plane_KernChi_seq(g0, om, S, phi, sigma_sq, chi):
 
     # measure separation
     Xi = jnp.exp(-jnp.sum(jnp.power(g[:,None,:,:] - g[:,:,None,:],2)/(2*sigma_sq),axis=3)) # the guassian bump across L
-    return jnp.sum(jnp.einsum('bkl,blk->bk',Xi, chi))/(B*L*L) # Mean
+    return jnp.sum(jnp.multiply(Xi, chi))/(B*L*L) # Mean
 
 def sep_plane_KernChi_Module(W, grid_params, phi, sigma_sq, chi):
     # Create the frequencies
