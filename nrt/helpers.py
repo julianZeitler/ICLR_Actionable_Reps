@@ -304,6 +304,15 @@ def calc_chi_plane(phi, sigma_theta, f):
     Chi = 1 - f*jnp.exp(-dist/(2*jnp.power(sigma_theta,2)))
     return Chi
 
+def calc_chi_plane_causal(phi, sigma_theta, f):
+    if phi.ndim == 2:
+        dist = jnp.sum(jnp.power(phi[:,None,:] - phi[None,:,:],2), axis = 2)
+    else: # Handle separate batch and sequence dim
+        dist = jnp.sum(jnp.power(phi[:,:,None,:] - phi[:,None,:,:],2), axis = 3)
+    dist = jnp.tril(dist) # Set upper triangle to zeros
+    Chi = 1 - f*jnp.exp(-dist/(2*jnp.power(sigma_theta,2)))
+    return Chi
+
 def calc_chi_plane_euc(phi, sigma_theta, f):
     Chi = jnp.sum(jnp.power(phi[:,None,:] - phi[None,:,:],2), axis = 2)
     return Chi

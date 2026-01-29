@@ -313,6 +313,31 @@ def sep_plane_KernChi_seq(g0, om, S, phi, sigma_sq, chi):
     Xi = jnp.exp(-jnp.sum(jnp.power(g[:,None,:,:] - g[:,:,None,:],2)/(2*sigma_sq),axis=3)) # the guassian bump across L
     return jnp.sum(jnp.multiply(Xi, chi))/(B*L*L) # Mean
 
+def sep_plane_KernChi_seq_causal(g0, om, S, phi, sigma_sq, chi):
+    # g0 = activity at origin (shape [D, 1])
+    # T(phi) = S @ T_irrep(phi) @ S^(-1)
+    # g(phi) = T(phi) @ g
+
+    B, L = phi.shape[0], phi.shape[1]
+
+    # Apply softplus to ensure non-negativity and normalize
+    g0 = jax.nn.softplus(g0)
+    g0 = g0 / jnp.linalg.norm(g0)
+
+    # Get transformation matrices for all phi positions
+    # T shape: [B, L, D, D]
+    shift_phi = jnp.roll(phi, 1, axis=1)
+    shift_phi = shift_phi.at[:,0,:].set(0)
+    d_phi = phi - shift_phi
+    T = helpers.get_T_2D(om, d_phi, S)
+
+    g = helpers.calc_g(g0, T) # g shape: [B, L, D]
+
+    # measure separation
+    Xi = jnp.exp(-jnp.sum(jnp.power(g[:,None,:,:] - g[:,:,None,:],2)/(2*sigma_sq),axis=3)) # the guassian bump across L
+    Xi = jnp.tril(Xi) # Mask "future" data
+    return jnp.sum(jnp.multiply(Xi, chi))/(B*L*L) # Mean
+
 def sep_plane_KernChi_Module(W, grid_params, phi, sigma_sq, chi):
     # Create the frequencies
     M = W.shape[0]

@@ -12,6 +12,7 @@ base_params = {
     "sampling_choice": 1, "Shift_std": 3, "shift_points_sep": 0,
     "om_init_scheme": 0, "om_init_scale": 2,
     "sigma_sq": 0.04, "sigma_theta": 0.5, "f": 1,
+    "causal": True,
     "convergence": False,
     "convergence_window": 1000,
     "convergence_patience": 100,
@@ -31,7 +32,7 @@ base_params = {
 #     {"seq_len": 1000, "batch": 1}
 # ]
 sweep_params = {
-    "k_norm": [-4, -3, -2, -1, 0, 2],
+    # "k_norm": [-4, -3, -2, -1, 0, 2],
     # "batch": [1]
 }
 
@@ -39,7 +40,7 @@ print("Running parameter sweep...")
 results = run_seq_parameter_sweep(
     base_parameters=base_params,
     sweep_params=sweep_params,
-    base_savepath=f"data/{datetime.strftime(datetime.now(), '%y%m%d')}/fixed_Xi_chi_multiplication_sweep_knorm_varied_seed",
+    base_savepath=f"data/{datetime.strftime(datetime.now(), '%y%m%d')}/causal",
     key_seed=0,
     generate_plots=True,
     same_init_across_K=False,  # Set to True to use same initialization for all K runs

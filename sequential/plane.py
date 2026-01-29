@@ -39,6 +39,8 @@ def run_plane_sequential_optimization(parameters, dataloader, savepath = None, k
     Shift_std = parameters["Shift_std"]
     resample_iters = parameters["resample_iters"]
 
+    causal = parameters.get("causal", False)
+
     lambda_pos_init = parameters["lambda_pos_init"]
     k_p = parameters["k_p"]
     alpha_p = parameters["alpha_p"]
@@ -72,13 +74,21 @@ def run_plane_sequential_optimization(parameters, dataloader, savepath = None, k
     convergence_threshold = parameters.get("convergence_threshold", 0.05)  # Min relative improvement
     convergence_smoothing = parameters.get("convergence_smoothing", 200)  # Smooth over N recent values
 
-    loss_sep = jit(losses.sep_plane_KernChi_seq)
-    # loss_sep = losses.sep_plane_KernChi_seq
-    grad_sep_g0 = jit(grad(losses.sep_plane_KernChi_seq, argnums=0))
-    grad_sep_om = jit(grad(losses.sep_plane_KernChi_seq, argnums=1))
-    grad_sep_S = jit(grad(losses.sep_plane_KernChi_seq, argnums=2))
-    calc_chi = jit(helpers.calc_chi_plane)
-
+    if causal:
+        loss_sep = jit(losses.sep_plane_KernChi_seq_causal)
+        # loss_sep = losses.sep_plane_KernChi_seq
+        grad_sep_g0 = jit(grad(losses.sep_plane_KernChi_seq_causal, argnums=0))
+        grad_sep_om = jit(grad(losses.sep_plane_KernChi_seq_causal, argnums=1))
+        grad_sep_S = jit(grad(losses.sep_plane_KernChi_seq_causal, argnums=2))
+        calc_chi = jit(helpers.calc_chi_plane_causal)
+    else:
+        loss_sep = jit(losses.sep_plane_KernChi_seq_causal)
+        # loss_sep = losses.sep_plane_KernChi_seq
+        grad_sep_g0 = jit(grad(losses.sep_plane_KernChi_seq_causal, argnums=0))
+        grad_sep_om = jit(grad(losses.sep_plane_KernChi_seq_causal, argnums=1))
+        grad_sep_S = jit(grad(losses.sep_plane_KernChi_seq_causal, argnums=2))
+        calc_chi = jit(helpers.calc_chi_plane_causal)
+    
     loss_pos = jit(losses.pos_plane_seq)
     # loss_pos = losses.pos_plane_seq
     grad_pos_g0 = jit(grad(losses.pos_plane_seq, argnums=0))
