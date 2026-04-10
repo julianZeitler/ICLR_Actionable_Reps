@@ -516,6 +516,32 @@ def generate_sweep_validation_loss_distributions(
     return figures
 
 
+def is_run_complete(run_savepath: str, K: int) -> bool:
+    """
+    Check if a run is complete by verifying all K iterations have final output files.
+
+    Args:
+        run_savepath: Path to the run directory
+        K: Number of K iterations expected
+
+    Returns:
+        True if all K iterations are complete, False otherwise
+    """
+    if not os.path.exists(run_savepath):
+        return False
+
+    # Check if parameters.json exists (indicates run was at least started properly)
+    if not os.path.exists(os.path.join(run_savepath, 'parameters.json')):
+        return False
+
+    # Check if all K iterations have final output files
+    for k in range(K):
+        if not os.path.exists(os.path.join(run_savepath, f'g0_final_{k}.pkl')):
+            return False
+
+    return True
+
+
 def run_seq_parameter_sweep(
     base_parameters: Dict[str, Any],
     sweep_params: Dict[str, List[Any]] | List[Dict[str, Any]],
@@ -526,7 +552,8 @@ def run_seq_parameter_sweep(
     om_init: Optional[Any] = None,
     S_init: Optional[Any] = None,
     same_init_across_K: bool = False,
-    use_dataset_variants: bool = False
+    use_dataset_variants: bool = False,
+    resume: bool = False
 ) -> List[Dict[str, Any]]:
     """
     Run a parameter sweep over specified parameter combinations.
@@ -552,6 +579,8 @@ def run_seq_parameter_sweep(
         use_dataset_variants: If True, create K different dataset variants (one per K iteration).
                              Each variant has different random trajectories but same seq_len/batch parameters.
                              If False (default), all K runs use the same dataset.
+        resume: If True, skip completed runs and resume incomplete ones from their latest checkpoint.
+                Completed runs are detected by checking for final output files.
 
     Returns:
         List of dictionaries containing results and metadata for each run
@@ -574,6 +603,8 @@ def run_seq_parameter_sweep(
     print(f"Starting parameter sweep with {len(combinations)} combinations")
     print(f"Sweep mode: {sweep_mode}")
     print(f"Sweeping over: {param_names}")
+    if resume:
+        print(f"Resume mode: ENABLED (will skip completed runs and resume from checkpoints)")
     print(f"{'='*80}\n")
 
     results = []
@@ -583,12 +614,10 @@ def run_seq_parameter_sweep(
         now = datetime.strftime(datetime.now(), '%H%M%S')
         base_savepath = f"data/{today}/sweep_{now}/"
 
-    for idx, combo in enumerate(combinations):
-        print(f"\n{'-'*80}")
-        print(f"Run {idx + 1}/{len(combinations)}")
-        print(f"Parameters: {dict(zip(param_names, combo))}")
-        print(f"{'-'*80}\n")    
+    # Track completed and skipped runs for resume mode
+    skipped_runs = 0
 
+    for idx, combo in enumerate(combinations):
         # Create parameter dict for this run
         run_parameters = base_parameters.copy()
 
@@ -597,6 +626,48 @@ def run_seq_parameter_sweep(
             run_parameters[param_name] = param_value
 
         run_savepath = os.path.join(base_savepath, f"run{idx:03d}/")
+
+        # Check if run is already complete when in resume mode
+        if resume and is_run_complete(run_savepath, run_parameters["K"]):
+            print(f"\n{'-'*80}")
+            print(f"Run {idx + 1}/{len(combinations)} - SKIPPING (already complete)")
+            print(f"Parameters: {dict(zip(param_names, combo))}")
+            print(f"{'-'*80}")
+
+            # Load existing results
+            try:
+                with open(os.path.join(run_savepath, 'sweep_config.json'), 'r') as f:
+                    sweep_config = json.load(f)
+
+                # Load min_losses from saved files
+                min_losses = []
+                for k in range(run_parameters["K"]):
+                    with open(os.path.join(run_savepath, f'min_L_{k}.pkl'), 'rb') as f:
+                        min_L = pickle.load(f)
+                        min_losses.append(min_L)
+
+                run_result = {
+                    'run_index': idx,
+                    'sweep_parameters': dict(zip(param_names, combo)),
+                    'savepath': run_savepath,
+                    'min_losses': min_losses,
+                    'success': True,
+                    'skipped': True
+                }
+                results.append(run_result)
+                skipped_runs += 1
+                print(f"  Best loss: {min_losses[0][1]:.5f}")
+                continue
+
+            except Exception as e:
+                print(f"  Warning: Failed to load results, will re-run: {e}")
+
+        print(f"\n{'-'*80}")
+        print(f"Run {idx + 1}/{len(combinations)}")
+        print(f"Parameters: {dict(zip(param_names, combo))}")
+        if resume:
+            print(f"Mode: {'RESUMING' if os.path.exists(run_savepath) else 'NEW'}")
+        print(f"{'-'*80}\n")
 
         # Ensure directory exists
         os.makedirs(run_savepath, exist_ok=True)
@@ -652,7 +723,8 @@ def run_seq_parameter_sweep(
                 g0_init=g0_init,
                 om_init=om_init,
                 S_init=S_init,
-                same_init_across_K=same_init_across_K
+                same_init_across_K=same_init_across_K,
+                resume=resume
             )
 
             # Generate analysis plots
@@ -697,7 +769,12 @@ def run_seq_parameter_sweep(
 
     print(f"\n{'='*80}")
     print(f"Parameter sweep completed")
-    print(f"Successful runs: {sum(r['success'] for r in results)}/{len(results)}")
+    successful_runs = sum(r['success'] for r in results)
+    skipped_count = sum(1 for r in results if r.get('skipped', False))
+    print(f"Successful runs: {successful_runs}/{len(results)}")
+    if resume and skipped_count > 0:
+        print(f"Skipped (already complete): {skipped_count}")
+        print(f"Newly completed: {successful_runs - skipped_count}")
     print(f"Summary saved to: {summary_path}")
     print(f"{'='*80}\n")
 

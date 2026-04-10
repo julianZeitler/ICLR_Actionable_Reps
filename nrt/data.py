@@ -8,6 +8,7 @@ from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
+from matplotlib.collections import LineCollection
 
 
 class TrajectoryDataset:
@@ -351,6 +352,64 @@ class TrajectoryGenerator(object):
         plt.tight_layout()
 
         # Save if requested
+        if save_path:
+            plt.savefig(save_path, dpi=150, bbox_inches='tight')
+            print(f"Figure saved to {save_path}")
+
+        return fig, ax
+
+    def visualize_trajectory_time(self, positions, box_width=2, box_height=2,
+                                  title=None, figsize=(8, 8), cmap='viridis',
+                                  save_path=None):
+        '''
+        Visualize a single trajectory with color encoding along time.
+
+        Args:
+            positions: numpy array of shape [sequence_length, 2]
+            box_width: Width of environment box
+            box_height: Height of environment box
+            title: Plot title
+            figsize: Figure size tuple
+            cmap: Colormap for time encoding
+            save_path: If provided, save figure to this path
+
+        Returns:
+            fig, ax: Matplotlib figure and axis objects
+        '''
+        fig, ax = plt.subplots(figsize=figsize)
+
+        # Create line segments for LineCollection
+        points = positions.reshape(-1, 1, 2)
+        segments = np.concatenate([points[:-1], points[1:]], axis=1)
+
+        # Create time-based colors
+        t = np.linspace(0, 1, len(segments))
+        lc = LineCollection(segments, cmap=cmap, norm=plt.Normalize(0, 1))
+        lc.set_array(t)
+        lc.set_linewidth(2)
+        ax.add_collection(lc)
+
+        # Mark start and end points
+        ax.scatter(positions[0, 0], positions[0, 1], c='green', s=100, zorder=5, label='Start')
+        ax.scatter(positions[-1, 0], positions[-1, 1], c='red', s=100, zorder=5, label='End')
+
+        # Draw environment box
+        box = Rectangle((-box_width/2, -box_height/2), box_width, box_height,
+                        fill=False, edgecolor='black', linewidth=2)
+        ax.add_patch(box)
+
+        ax.set_xlim(-box_width/2 - 0.1, box_width/2 + 0.1)
+        ax.set_ylim(-box_height/2 - 0.1, box_height/2 + 0.1)
+        ax.set_aspect('equal')
+        ax.legend()
+
+        # Add colorbar
+        cbar = plt.colorbar(lc, ax=ax)
+        cbar.set_label('Time')
+
+        if title:
+            ax.set_title(title)
+
         if save_path:
             plt.savefig(save_path, dpi=150, bbox_inches='tight')
             print(f"Figure saved to {save_path}")

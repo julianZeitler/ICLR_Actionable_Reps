@@ -313,7 +313,7 @@ def sep_plane_KernChi_seq(g0, om, S, phi, sigma_sq, chi):
     Xi = jnp.exp(-jnp.sum(jnp.power(g[:,None,:,:] - g[:,:,None,:],2)/(2*sigma_sq),axis=3)) # the guassian bump across L
     return jnp.sum(jnp.multiply(Xi, chi))/(B*L*L) # Mean
 
-def sep_plane_KernChi_seq_causal(g0, om, S, phi, sigma_sq, chi):
+def sep_plane_KernChi_seq_causal(g0, om, S, phi, sigma_sq, chi, decay=None):
     # g0 = activity at origin (shape [D, 1])
     # T(phi) = S @ T_irrep(phi) @ S^(-1)
     # g(phi) = T(phi) @ g
@@ -336,6 +336,13 @@ def sep_plane_KernChi_seq_causal(g0, om, S, phi, sigma_sq, chi):
     # measure separation
     Xi = jnp.exp(-jnp.sum(jnp.power(g[:,None,:,:] - g[:,:,None,:],2)/(2*sigma_sq),axis=3)) # the guassian bump across L
     Xi = jnp.tril(Xi) # Mask "future" data
+    if decay:
+        # array with "decay" exponential decay starting from 1, length L
+        decay_arr = jnp.power(decay, jnp.arange(L))  # [1, d, d^2, ..., d^(L-1)]
+        # Matrix with this decay array arranged vertically with every column shifting the array down once. Don't wrap around (top triangle zero)
+        row_idx, col_idx = jnp.meshgrid(jnp.arange(L), jnp.arange(L), indexing='ij')
+        decay_matrix = jnp.where(row_idx >= col_idx, decay_arr[row_idx - col_idx], 0.0)
+        Xi = jnp.multiply(Xi, decay_matrix[None, :, :])
     return jnp.sum(jnp.multiply(Xi, chi))/(B*L*L) # Mean
 
 def sep_plane_KernChi_Module(W, grid_params, phi, sigma_sq, chi):

@@ -4,12 +4,130 @@ import jax.numpy as jnp
 import numpy as np
 from datetime import datetime
 import os
+import pickle
+import glob
 
 # And functions I've written
 from nrt import helpers
 from nrt import losses
 
-def run_plane_sequential_optimization(parameters, dataloader, savepath = None, key_seed = 0, g0_init = None, om_init = None, S_init = None, same_init_across_K = False):
+
+def find_latest_checkpoint(savepath, k):
+    """
+    Find the latest checkpoint for a given K iteration.
+
+    Args:
+        savepath: Base save directory
+        k: Which K iteration to look for
+
+    Returns:
+        Tuple of (step, checkpoint_dir) or (None, None) if no checkpoint found
+    """
+    checkpoint_dir = os.path.join(savepath, f"checkpoints/k{k}/")
+    if not os.path.exists(checkpoint_dir):
+        return None, None
+
+    # Find all g0 checkpoint files
+    pattern = os.path.join(checkpoint_dir, "g0_step_*.pkl")
+    checkpoint_files = glob.glob(pattern)
+
+    if not checkpoint_files:
+        return None, None
+
+    # Extract step numbers and find the maximum
+    steps = []
+    for f in checkpoint_files:
+        try:
+            step = int(os.path.basename(f).replace("g0_step_", "").replace(".pkl", ""))
+            steps.append(step)
+        except ValueError:
+            continue
+
+    if not steps:
+        return None, None
+
+    latest_step = max(steps)
+    return latest_step, checkpoint_dir
+
+
+def load_checkpoint(checkpoint_dir, step):
+    """
+    Load checkpoint state from disk.
+
+    Args:
+        checkpoint_dir: Directory containing checkpoint files
+        step: Step number to load
+
+    Returns:
+        Dictionary containing checkpoint state, or None if loading fails
+    """
+    try:
+        state = {}
+
+        # Load required files
+        with open(os.path.join(checkpoint_dir, f"g0_step_{step}.pkl"), 'rb') as f:
+            state['g0'] = pickle.load(f)
+        with open(os.path.join(checkpoint_dir, f"om_step_{step}.pkl"), 'rb') as f:
+            state['om'] = pickle.load(f)
+        with open(os.path.join(checkpoint_dir, f"S_step_{step}.pkl"), 'rb') as f:
+            state['S'] = pickle.load(f)
+        with open(os.path.join(checkpoint_dir, f"L_step_{step}.pkl"), 'rb') as f:
+            state['Losses'] = pickle.load(f)
+        with open(os.path.join(checkpoint_dir, f"min_L_step_{step}.pkl"), 'rb') as f:
+            state['min_L'] = pickle.load(f)
+        with open(os.path.join(checkpoint_dir, f"lambda_pos_step_{step}.pkl"), 'rb') as f:
+            state['lambda_pos_arr'] = pickle.load(f)
+        with open(os.path.join(checkpoint_dir, f"lambda_norm_step_{step}.pkl"), 'rb') as f:
+            state['lambda_norm_arr'] = pickle.load(f)
+
+        # Load best parameters if they exist
+        try:
+            with open(os.path.join(checkpoint_dir, f"g0_best_step_{step}.pkl"), 'rb') as f:
+                state['g0_best'] = pickle.load(f)
+            with open(os.path.join(checkpoint_dir, f"om_best_step_{step}.pkl"), 'rb') as f:
+                state['om_best'] = pickle.load(f)
+            with open(os.path.join(checkpoint_dir, f"S_best_step_{step}.pkl"), 'rb') as f:
+                state['S_best'] = pickle.load(f)
+        except FileNotFoundError:
+            state['g0_best'] = None
+            state['om_best'] = None
+            state['S_best'] = None
+
+        # Load optimizer state if it exists (for newer checkpoints)
+        try:
+            with open(os.path.join(checkpoint_dir, f"optimizer_state_step_{step}.pkl"), 'rb') as f:
+                state['optimizer_state'] = pickle.load(f)
+        except FileNotFoundError:
+            state['optimizer_state'] = None
+
+        # Load initial values if they exist
+        try:
+            with open(os.path.join(checkpoint_dir, f"g0_init_step_{step}.pkl"), 'rb') as f:
+                state['g0_init'] = pickle.load(f)
+            with open(os.path.join(checkpoint_dir, f"S_init_step_{step}.pkl"), 'rb') as f:
+                state['S_init'] = pickle.load(f)
+            with open(os.path.join(checkpoint_dir, f"om_init_step_{step}.pkl"), 'rb') as f:
+                state['om_init'] = pickle.load(f)
+        except FileNotFoundError:
+            state['g0_init'] = None
+            state['S_init'] = None
+            state['om_init'] = None
+
+        # Load scalar state
+        try:
+            with open(os.path.join(checkpoint_dir, f"scalar_state_step_{step}.pkl"), 'rb') as f:
+                state['scalar_state'] = pickle.load(f)
+        except FileNotFoundError:
+            state['scalar_state'] = None
+
+        state['step'] = step
+        return state
+
+    except Exception as e:
+        print(f"Failed to load checkpoint at step {step}: {e}")
+        return None
+
+def run_plane_sequential_optimization(parameters, dataloader, savepath = None, key_seed = 0, g0_init = None, om_init = None, S_init = None, same_init_across_K = False, resume = False):
     """
     Run plane optimization with given parameters.
 
@@ -25,6 +143,8 @@ def run_plane_sequential_optimization(parameters, dataloader, savepath = None, k
         same_init_across_K: If True, use the same random initialization for all K runs.
                            If False (default), each K run gets different random initialization.
                            Note: Data batches will still be different across runs regardless of this setting.
+        resume: If True, attempt to resume from the latest checkpoint for each K iteration.
+                Completed K iterations will be skipped entirely.
 
     Returns:
         Dictionary containing optimization results
@@ -40,6 +160,7 @@ def run_plane_sequential_optimization(parameters, dataloader, savepath = None, k
     resample_iters = parameters["resample_iters"]
 
     causal = parameters.get("causal", False)
+    decay = parameters.get("decay", None)
 
     lambda_pos_init = parameters["lambda_pos_init"]
     k_p = parameters["k_p"]
@@ -75,19 +196,19 @@ def run_plane_sequential_optimization(parameters, dataloader, savepath = None, k
     convergence_smoothing = parameters.get("convergence_smoothing", 200)  # Smooth over N recent values
 
     if causal:
-        loss_sep = jit(losses.sep_plane_KernChi_seq_causal)
+        loss_sep = jit(losses.sep_plane_KernChi_seq_causal, static_argnames="decay")
         # loss_sep = losses.sep_plane_KernChi_seq
-        grad_sep_g0 = jit(grad(losses.sep_plane_KernChi_seq_causal, argnums=0))
-        grad_sep_om = jit(grad(losses.sep_plane_KernChi_seq_causal, argnums=1))
-        grad_sep_S = jit(grad(losses.sep_plane_KernChi_seq_causal, argnums=2))
+        grad_sep_g0 = jit(grad(losses.sep_plane_KernChi_seq_causal, argnums=0), static_argnames="decay")
+        grad_sep_om = jit(grad(losses.sep_plane_KernChi_seq_causal, argnums=1), static_argnames="decay")
+        grad_sep_S = jit(grad(losses.sep_plane_KernChi_seq_causal, argnums=2), static_argnames="decay")
         calc_chi = jit(helpers.calc_chi_plane_causal)
     else:
-        loss_sep = jit(losses.sep_plane_KernChi_seq_causal)
+        loss_sep = jit(losses.sep_plane_KernChi_seq)
         # loss_sep = losses.sep_plane_KernChi_seq
-        grad_sep_g0 = jit(grad(losses.sep_plane_KernChi_seq_causal, argnums=0))
-        grad_sep_om = jit(grad(losses.sep_plane_KernChi_seq_causal, argnums=1))
-        grad_sep_S = jit(grad(losses.sep_plane_KernChi_seq_causal, argnums=2))
-        calc_chi = jit(helpers.calc_chi_plane_causal)
+        grad_sep_g0 = jit(grad(losses.sep_plane_KernChi_seq, argnums=0))
+        grad_sep_om = jit(grad(losses.sep_plane_KernChi_seq, argnums=1))
+        grad_sep_S = jit(grad(losses.sep_plane_KernChi_seq, argnums=2))
+        calc_chi = jit(helpers.calc_chi_plane)
     
     loss_pos = jit(losses.pos_plane_seq)
     # loss_pos = losses.pos_plane_seq
@@ -131,69 +252,216 @@ def run_plane_sequential_optimization(parameters, dataloader, savepath = None, k
     }
 
     for counter in range(K):
+        # Check if this K iteration is already complete (has final output files)
+        if resume and os.path.exists(os.path.join(savepath, f"g0_final_{counter}.pkl")):
+            print(f"\n>>> K iteration {counter} already complete, loading saved results...")
+            # Load saved results to populate the results dict
+            with open(os.path.join(savepath, f"g0_{counter}.pkl"), 'rb') as file:
+                g0_best = pickle.load(file)
+            with open(os.path.join(savepath, f"om_{counter}.pkl"), 'rb') as file:
+                om_best = pickle.load(file)
+            with open(os.path.join(savepath, f"S_{counter}.pkl"), 'rb') as file:
+                S_best = pickle.load(file)
+            with open(os.path.join(savepath, f"g0_final_{counter}.pkl"), 'rb') as file:
+                g0 = pickle.load(file)
+            with open(os.path.join(savepath, f"om_final_{counter}.pkl"), 'rb') as file:
+                om = pickle.load(file)
+            with open(os.path.join(savepath, f"S_final_{counter}.pkl"), 'rb') as file:
+                S = pickle.load(file)
+            with open(os.path.join(savepath, f"L_{counter}.pkl"), 'rb') as file:
+                Losses = pickle.load(file)
+            with open(os.path.join(savepath, f"min_L_{counter}.pkl"), 'rb') as file:
+                min_L = pickle.load(file)
+            with open(os.path.join(savepath, f"lambda_pos_{counter}.pkl"), 'rb') as file:
+                Lambdas_pos = pickle.load(file)
+            with open(os.path.join(savepath, f"lambda_norm_{counter}.pkl"), 'rb') as file:
+                Lambdas_norm = pickle.load(file)
+
+            results["g0_best_list"].append(g0_best)
+            results["om_best_list"].append(om_best)
+            results["S_best_list"].append(S_best)
+            results["g0_final_list"].append(g0)
+            results["om_final_list"].append(om)
+            results["S_final_list"].append(S)
+            results["losses_list"].append(Losses)
+            results["min_L_list"].append(min_L)
+            results["lambda_pos_list"].append(Lambdas_pos)
+            results["lambda_norm_list"].append(Lambdas_norm)
+            print(f"SKIPPED ITERATION {counter}: Already complete with Min_Loss = {min_L[1]:.5f}\n")
+            continue
+
         # Select appropriate dataloader for this K iteration
         if isinstance(dataloader, list):
             current_dataloader = dataloader[counter]
         else:
             current_dataloader = dataloader
 
-        # Reset key to initial state if using same initialization across K runs
-        if same_init_across_K and counter > 0:
-            key = key_init
+        # Check for checkpoint to resume from
+        start_step = 0
+        checkpoint_loaded = False
 
-        # Randomly initialise g0, losses, moments, and best g0 and loss
-        if g0_init is None:
-            key, subkey1 = random.split(key)
-            g0 = random.normal(subkey1, [2*M+1])    # Activity at origin
+        if resume:
+            latest_step, checkpoint_dir = find_latest_checkpoint(savepath, counter)
+            if latest_step is not None:
+                print(f"\n>>> Found checkpoint at step {latest_step} for K iteration {counter}")
+                checkpoint_state = load_checkpoint(checkpoint_dir, latest_step)
+                if checkpoint_state is not None:
+                    checkpoint_loaded = True
+                    start_step = latest_step + 1
+                    print(f">>> Resuming from step {start_step}")
+
+        if checkpoint_loaded:
+            # Restore state from checkpoint
+            g0 = checkpoint_state['g0']
+            om = checkpoint_state['om']
+            S = checkpoint_state['S']
+
+            # Restore best parameters
+            if checkpoint_state['g0_best'] is not None:
+                g0_best = checkpoint_state['g0_best']
+                om_best = checkpoint_state['om_best']
+                S_best = checkpoint_state['S_best']
+            else:
+                g0_best = g0
+                om_best = om
+                S_best = S
+
+            # Restore initial values
+            if checkpoint_state['g0_init'] is not None:
+                g0_init_save = checkpoint_state['g0_init']
+                om_init_save = checkpoint_state['om_init']
+                S_init_save = checkpoint_state['S_init']
+            else:
+                g0_init_save = g0
+                om_init_save = om
+                S_init_save = S
+
+            # Restore losses array (expand to full size)
+            checkpoint_losses = checkpoint_state['Losses']
+            Losses = np.zeros([4, int(T / save_iters)])
+            Losses[:, :checkpoint_losses.shape[1]] = checkpoint_losses
+
+            # Restore lambda arrays
+            checkpoint_lambdas_pos = checkpoint_state['lambda_pos_arr']
+            checkpoint_lambdas_norm = checkpoint_state['lambda_norm_arr']
+            Lambdas_pos = np.zeros(int(T / save_iters))
+            Lambdas_norm = np.zeros(int(T / save_iters))
+            Lambdas_pos[:len(checkpoint_lambdas_pos)] = checkpoint_lambdas_pos
+            Lambdas_norm[:len(checkpoint_lambdas_norm)] = checkpoint_lambdas_norm
+
+            min_L = checkpoint_state['min_L']
+
+            # Restore optimizer state if available
+            if checkpoint_state['optimizer_state'] is not None:
+                opt_state = checkpoint_state['optimizer_state']
+                means_g0 = opt_state['means_g0']
+                sec_moms_g0 = opt_state['sec_moms_g0']
+                means_om = opt_state['means_om']
+                sec_moms_om = opt_state['sec_moms_om']
+                means_S = opt_state['means_S']
+                sec_moms_S = opt_state['sec_moms_S']
+            else:
+                # If no optimizer state, initialize to zeros (will warm up quickly)
+                print(">>> Warning: No optimizer state in checkpoint, reinitializing ADAM moments")
+                means_g0 = jnp.zeros(jnp.shape(g0))
+                sec_moms_g0 = jnp.zeros(jnp.shape(g0))
+                means_om = jnp.zeros(jnp.shape(om))
+                sec_moms_om = jnp.zeros(jnp.shape(om))
+                means_S = jnp.zeros(jnp.shape(S))
+                sec_moms_S = jnp.zeros(jnp.shape(S))
+
+            # Restore scalar state if available
+            if checkpoint_state['scalar_state'] is not None:
+                scalar_state = checkpoint_state['scalar_state']
+                L2 = scalar_state['L2']
+                L3 = scalar_state['L3']
+                lambda_pos = scalar_state['lambda_pos']
+                lambda_norm = scalar_state['lambda_norm']
+                save_counter = scalar_state['save_counter']
+
+                # Restore convergence state
+                if convergence and 'loss_history' in scalar_state:
+                    loss_history = scalar_state['loss_history']
+                    no_improvement_count = scalar_state['no_improvement_count']
+                    converged = False
+                elif convergence:
+                    loss_history = {'L1': [], 'L2': [], 'L3': []}
+                    no_improvement_count = 0
+                    converged = False
+            else:
+                # Estimate scalar state from checkpoint
+                L2 = 0
+                L3 = 0
+                lambda_pos = Lambdas_pos[len(checkpoint_lambdas_pos) - 1] if len(checkpoint_lambdas_pos) > 0 else lambda_pos_init
+                lambda_norm = Lambdas_norm[len(checkpoint_lambdas_norm) - 1] if len(checkpoint_lambdas_norm) > 0 else lambda_norm_init
+                save_counter = len(checkpoint_lambdas_pos)
+
+                if convergence:
+                    loss_history = {'L1': [], 'L2': [], 'L3': []}
+                    no_improvement_count = 0
+                    converged = False
         else:
-            g0 = g0_init
+            # Reset key to initial state if using same initialization across K runs
+            if same_init_across_K and counter > 0:
+                key = key_init
 
-        if om_init is None:
-            key, subkey2 = random.split(key)
-            om = random.uniform(subkey2, [M, 2]) * om_init_scale
-        else:
-            om = om_init
+            # Randomly initialise g0, losses, moments, and best g0 and loss
+            if g0_init is None:
+                key, subkey1 = random.split(key)
+                g0 = random.normal(subkey1, [2*M+1])    # Activity at origin
+            else:
+                g0 = g0_init
 
-        if S_init is None:
-            key, subkey3 = random.split(key)
-            S = random.normal(subkey3, [2*M+1, 2*M+1])
-        else:
-            S = S_init
+            if om_init is None:
+                key, subkey2 = random.split(key)
+                om = random.uniform(subkey2, [M, 2]) * om_init_scale
+            else:
+                om = om_init
 
-        g0_init_save = g0
-        means_g0 = jnp.zeros(jnp.shape(g0))     # Moments for ADAM
-        sec_moms_g0 = jnp.zeros(jnp.shape(g0))
-        g0_best = g0                          # Initialise best g0 somewhere
+            if S_init is None:
+                key, subkey3 = random.split(key)
+                S = random.normal(subkey3, [2*M+1, 2*M+1])
+            else:
+                S = S_init
 
-        om_init_save = om
-        means_om = jnp.zeros(jnp.shape(om))  # Moments for ADAM
-        sec_moms_om = jnp.zeros(jnp.shape(om))
-        om_best = om
+            g0_init_save = g0
+            means_g0 = jnp.zeros(jnp.shape(g0))     # Moments for ADAM
+            sec_moms_g0 = jnp.zeros(jnp.shape(g0))
+            g0_best = g0                          # Initialise best g0 somewhere
 
-        S_init_save = S
-        means_S = jnp.zeros(jnp.shape(S))     # Moments for ADAM
-        sec_moms_S = jnp.zeros(jnp.shape(S))
-        S_best = S
+            om_init_save = om
+            means_om = jnp.zeros(jnp.shape(om))  # Moments for ADAM
+            sec_moms_om = jnp.zeros(jnp.shape(om))
+            om_best = om
 
-        Losses = np.zeros([4, int(T / save_iters)])
-        Lambdas_pos = np.zeros(int(T / save_iters))
-        Lambdas_norm = np.zeros(int(T / save_iters))
-        min_L = np.zeros([5])
-        min_L[1] = np.inf
-        L2 = 0
-        L3 = 0
-        lambda_norm = lambda_norm_init
-        lambda_pos = lambda_pos_init
-        save_counter = 0
+            S_init_save = S
+            means_S = jnp.zeros(jnp.shape(S))     # Moments for ADAM
+            sec_moms_S = jnp.zeros(jnp.shape(S))
+            S_best = S
 
-        # Convergence tracking
-        if convergence:
-            loss_history = {'L1': [], 'L2': [], 'L3': []}  # Track recent losses
-            no_improvement_count = 0
-            converged = False
+            Losses = np.zeros([4, int(T / save_iters)])
+            Lambdas_pos = np.zeros(int(T / save_iters))
+            Lambdas_norm = np.zeros(int(T / save_iters))
+            min_L = np.zeros([5])
+            min_L[1] = np.inf
+            L2 = 0
+            L3 = 0
+            lambda_norm = lambda_norm_init
+            lambda_pos = lambda_pos_init
+            save_counter = 0
 
-        for step in range(T):
-            if step % resample_iters == 0:
+            # Convergence tracking
+            if convergence:
+                loss_history = {'L1': [], 'L2': [], 'L3': []}  # Track recent losses
+                no_improvement_count = 0
+                converged = False
+
+        # Track if this is the first step (for forcing data load after resume)
+        first_step_after_resume = checkpoint_loaded
+
+        for step in range(start_step, T):
+            # Load data on resample iterations, or on first step after resuming
+            if step % resample_iters == 0 or first_step_after_resume:
                 phi = current_dataloader.get_batch(int(step/resample_iters))
                 B, L = phi.shape[0], phi.shape[1]
                 
@@ -203,13 +471,20 @@ def run_plane_sequential_optimization(parameters, dataloader, savepath = None, k
 
                 phi_pos = np.concatenate([phi, phi_norm], axis=0)
                 chi = calc_chi(phi, sigma_theta, f)
+                first_step_after_resume = False  # Reset after first data load
 
             # Separation Term
-            L1 = 100*loss_sep(g0, om, S, phi, sigma_sq, chi)
-            g0_grad1 = 100*grad_sep_g0(g0, om, S, phi, sigma_sq, chi)
-            om_grad1 = 100*grad_sep_om(g0, om, S, phi, sigma_sq, chi)
-            S_grad1 = 100*grad_sep_S(g0, om, S, phi, sigma_sq, chi)
-
+            if decay:
+                L1 = 100*loss_sep(g0, om, S, phi, sigma_sq, chi, decay)
+                g0_grad1 = 100*grad_sep_g0(g0, om, S, phi, sigma_sq, chi, decay)
+                om_grad1 = 100*grad_sep_om(g0, om, S, phi, sigma_sq, chi, decay)
+                S_grad1 = 100*grad_sep_S(g0, om, S, phi, sigma_sq, chi, decay)
+            else:
+                L1 = 100*loss_sep(g0, om, S, phi, sigma_sq, chi)
+                g0_grad1 = 100*grad_sep_g0(g0, om, S, phi, sigma_sq, chi)
+                om_grad1 = 100*grad_sep_om(g0, om, S, phi, sigma_sq, chi)
+                S_grad1 = 100*grad_sep_S(g0, om, S, phi, sigma_sq, chi)
+            
             # Positivity Term
             pos = loss_pos(g0, om, S, phi_pos)
             if pos > 0:
@@ -331,6 +606,35 @@ def run_plane_sequential_optimization(parameters, dataloader, savepath = None, k
                     helpers.save_obj(g0_best, f"g0_best_step_{step}", checkpoint_dir)
                     helpers.save_obj(om_best, f"om_best_step_{step}", checkpoint_dir)
                     helpers.save_obj(S_best, f"S_best_step_{step}", checkpoint_dir)
+
+                # Save optimizer state (ADAM moments)
+                optimizer_state = {
+                    'means_g0': means_g0,
+                    'sec_moms_g0': sec_moms_g0,
+                    'means_om': means_om,
+                    'sec_moms_om': sec_moms_om,
+                    'means_S': means_S,
+                    'sec_moms_S': sec_moms_S,
+                }
+                helpers.save_obj(optimizer_state, f"optimizer_state_step_{step}", checkpoint_dir)
+
+                # Save initial values for proper result saving later
+                helpers.save_obj(g0_init_save, f"g0_init_step_{step}", checkpoint_dir)
+                helpers.save_obj(om_init_save, f"om_init_step_{step}", checkpoint_dir)
+                helpers.save_obj(S_init_save, f"S_init_step_{step}", checkpoint_dir)
+
+                # Save scalar state for resumption
+                scalar_state = {
+                    'L2': L2,
+                    'L3': L3,
+                    'lambda_pos': lambda_pos,
+                    'lambda_norm': lambda_norm,
+                    'save_counter': save_counter,
+                }
+                if convergence:
+                    scalar_state['loss_history'] = loss_history
+                    scalar_state['no_improvement_count'] = no_improvement_count
+                helpers.save_obj(scalar_state, f"scalar_state_step_{step}", checkpoint_dir)
 
                 print(f"  → Checkpoint saved at step {step}")
 
